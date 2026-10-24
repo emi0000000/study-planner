@@ -1,0 +1,18 @@
+{
+  "duracion_sesion": 25,
+  "duracion_minima": 10,
+  "descanso_corto": 5,
+  "descanso_largo": 15,
+  "sesiones_antes_de_descanso_largo": 4,
+  "maximo_minutos_por_dia": 120,
+  "horario": {
+    "lunes": "18:00",
+    "martes": "18:00",
+    "miercoles": "18:00",
+    "jueves": "18:00",
+    "viernes": "18:00",
+    "sabado": "10:00"
+  },
+  "aviso_minutos_antes": 5,
+  "id_calendario": "primary"
+}

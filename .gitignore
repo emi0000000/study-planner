@@ -218,3 +218,35 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ------------------------------------------------------------------
+# Planificador de estudio
+# ------------------------------------------------------------------
+
+# Datos privados de tu cuenta de Google: nunca los compartas ni los subas a internet.
+credentials.json
+token.json
+client_secret*.json
+
+# Variables de entorno y cualquier archivo con claves o contraseñas.
+.env
+.env.*
+!.env.example
+secrets.json
+secrets.toml
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.ppk
+id_rsa*
+id_ed25519*
+service-account*.json
+
+# Tus temas y planes generados.
+datos/
+
+# Archivos temporales de Python.
+__pycache__/
