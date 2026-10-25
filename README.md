@@ -5,6 +5,8 @@
 
 Reparte tu tiempo de estudio entre temas en **sesiones cortas** (por defecto de 25 minutos) y las crea en **Google Calendar**, para que el **teléfono te avise** antes de cada una. No hace falta programar nada para el móvil: basta con la app de Google Calendar.
 
+> **¿Es tu primera vez?** Sigue la [guía de inicio](GUIA_DE_INICIO.md): explica paso a paso cómo instalarlo y cómo conseguir lo que pide (Python, las librerías y el permiso de Google).
+
 Qué hace esta primera versión:
 
 - Guarda temas con su **prioridad** (1 a 5) y los **minutos por semana** que quieres dedicarles.
@@ -104,6 +106,8 @@ Todos se escriben después de `python planificador.py`. Para ver la ayuda de un 
 
 ## 5. Conectar con Google Calendar (solo una vez)
 
+> Estos mismos pasos, más detallados y con una lista de comprobación, están en la [guía de inicio](GUIA_DE_INICIO.md).
+
 La API de Google Calendar es gratuita y no pide tarjeta. Necesitas crear un "proyecto" en Google Cloud y descargar un archivo de permisos llamado `credentials.json`. Se hace una sola vez y lleva unos 10 minutos.
 
 ### 5.1 Crear el proyecto y activar la API
@@ -185,6 +189,7 @@ Puedes cambiar estos valores con el Bloc de notas. Respeta las comillas y las co
 
 | Archivo | Para qué sirve |
 |---|---|
+| `GUIA_DE_INICIO.md` | Guía paso a paso para instalarlo y conectarlo con Google la primera vez. |
 | `planificador.py` | El programa que ejecutas: lee los comandos y muestra los resultados. |
 | `repartidor.py` | El "motor": parte los temas en sesiones y las reparte por días. |
 | `calendario_google.py` | La conexión con Google Calendar (iniciar sesión, crear y borrar eventos). |
@@ -204,7 +209,7 @@ El código está comentado línea por línea, por si quieres entender o cambiar 
 | Mensaje o problema | Solución |
 |---|---|
 | `Faltan las librerías de Google` | Ejecuta `python -m pip install -r requirements.txt`. |
-| `No encuentro credentials.json` | Sigue la sección 5.3 y comprueba que el archivo se llama exactamente `credentials.json` (Windows a veces oculta la extensión y queda `credentials.json.json`). |
+| `No encuentro credentials.json` | Sigue la sección 5.3 y comprueba que el archivo se llama exactamente `credentials.json` (Windows a veces oculta la extensión y queda `credentials.json.json`). Si el mensaje dice "Pero encontré…", renombra el archivo que indica. |
 | En el navegador: **"Acceso bloqueado"** o **error 403: access_denied** | No añadiste tu correo como *test user* (sección 5.2, paso 6). |
 | `Google Calendar respondió con un error (403)` y habla de la API | La API no está habilitada en tu proyecto (sección 5.1, paso 3). |
 | `Ya hay N sesiones del planificador en tu calendario...` | Ya habías subido sesiones en esas fechas. Usa `subir --reemplazar` para cambiarlas por las nuevas. |

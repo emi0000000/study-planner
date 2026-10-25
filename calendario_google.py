@@ -47,6 +47,18 @@ PISTAS_DE_ERROR = {
 }
 
 
+def credenciales_con_otro_nombre(carpeta):
+    """Busca archivos que parecen credentials.json pero con otro nombre.
+
+    Pasa mucho: Google lo descarga como "client_secret_....json", o Windows (que oculta las
+    extensiones) lo deja como "credentials.json.json" al renombrarlo.
+    """
+    # El nombre con que lo descarga Google y las variantes de "credentials" (".json.json", " (1).json"...).
+    parecidos = sorted(carpeta.glob("client_secret*.json")) + sorted(carpeta.glob("credentials*.json*"))
+    # Quitamos el nombre correcto (si estuviera, no habría nada que avisar).
+    return [ruta.name for ruta in parecidos if ruta.name != "credentials.json"]
+
+
 def conectar(ruta_credenciales=None, ruta_token=None):
     """Inicia sesión en Google (abre el navegador la primera vez) y devuelve el servicio de Calendar."""
     # Importamos aquí las librerías de Google: así el resto de la app funciona aunque no estén instaladas.
@@ -101,11 +113,27 @@ def conectar(ruta_credenciales=None, ruta_token=None):
     if not credenciales or not credenciales.valid:
         # Para eso necesitamos credentials.json (ver README, sección "Conectar con Google Calendar").
         if not ruta_credenciales.exists():
-            # Explicamos qué falta y dónde ponerlo.
-            raise ErrorPlanificador(
-                f"No encuentro {ruta_credenciales.name} en la carpeta de la app ({ruta_credenciales.parent}).\n"
-                "Descárgalo de Google Cloud siguiendo el README (sección «Conectar con Google Calendar»)."
-            )
+            # Mensaje base: qué falta y dónde ponerlo.
+            mensaje = f"No encuentro {ruta_credenciales.name} en la carpeta de la app ({ruta_credenciales.parent}).\n"
+            # Miramos si está con otro nombre.
+            parecidos = credenciales_con_otro_nombre(ruta_credenciales.parent)
+            # Si lo encontramos, decimos exactamente qué renombrar.
+            if parecidos:
+                # Qué archivo renombrar.
+                mensaje += f"Pero encontré «{parecidos[0]}»: cámbiale el nombre a {ruta_credenciales.name}."
+                # Si es el caso de la extensión repetida, explicamos por qué no se ve.
+                if parecidos[0].startswith("credentials"):
+                    # Pista para Windows.
+                    mensaje += (
+                        "\nSi en el Explorador ya parece llamarse así, es que Windows oculta la extensión: "
+                        "en el menú Ver del Explorador activa «Extensiones de nombre de archivo»."
+                    )
+            # Si no, explicamos cómo conseguirlo.
+            else:
+                # Dónde está explicado.
+                mensaje += "Descárgalo de Google Cloud siguiendo GUIA_DE_INICIO.md (paso 4)."
+            # Mostramos el mensaje.
+            raise ErrorPlanificador(mensaje)
         # Preparamos el inicio de sesión con tus credenciales y el permiso que pedimos.
         flujo = InstalledAppFlow.from_client_secrets_file(str(ruta_credenciales), ALCANCES)
         # Abrimos el navegador; port=0 elige un puerto libre del ordenador automáticamente.

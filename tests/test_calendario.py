@@ -191,6 +191,18 @@ class SubirYBorrar(unittest.TestCase):
                 # Intento de conexión.
                 calendario_google.conectar(Path(carpeta) / "credentials.json", Path(carpeta) / "token.json")
 
+    def test_avisa_si_credentials_tiene_otro_nombre(self):
+        # Carpeta temporal para la prueba.
+        with tempfile.TemporaryDirectory() as carpeta:
+            # Ruta de la carpeta.
+            base = Path(carpeta)
+            # El archivo quedó con la extensión repetida, como pasa en Windows.
+            (base / "credentials.json.json").write_text("{}", encoding="utf-8")
+            # El mensaje dice qué archivo renombrar.
+            with self.assertRaisesRegex(almacen.ErrorPlanificador, "credentials.json.json"):
+                # Intento de conexión.
+                calendario_google.conectar(base / "credentials.json", base / "token.json")
+
 
 # Permite ejecutar este archivo directamente.
 if __name__ == "__main__":
