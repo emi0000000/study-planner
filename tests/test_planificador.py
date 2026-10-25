@@ -1,5 +1,7 @@
 """Pruebas de los comandos de punta a punta (sin conectar con Google)."""
 
+# copy duplica la configuración por defecto para modificarla.
+import copy
 # io.StringIO captura lo que el programa imprime.
 import io
 # sys para añadir la carpeta de la app a la ruta de módulos.
@@ -23,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # Módulos de la app.
 import almacen  # noqa: E402
 import planificador  # noqa: E402
+import repartidor  # noqa: E402
 
 
 class Comandos(unittest.TestCase):
@@ -128,6 +131,36 @@ class Comandos(unittest.TestCase):
             self.assertEqual(codigo, 1, argumentos)
             # Mensaje útil.
             self.assertIn(mensaje, errores.getvalue())
+
+
+class FuncionesCompartidas(unittest.TestCase):
+    """Funciones que usan tanto los comandos como la ventana."""
+
+    def test_resumen_por_tema(self):
+        # Configuración: solo lunes, con 50 minutos como máximo.
+        config = copy.deepcopy(almacen.CONFIG_POR_DEFECTO)
+        # Cambios.
+        config.update(horario={"lunes": "18:00"}, maximo_minutos_por_dia=50)
+        # Dos temas que no caben enteros.
+        temas = [{"nombre": "A", "prioridad": 5, "minutos_semana": 50}, {"nombre": "B", "prioridad": 1, "minutos_semana": 25}]
+        # Plan.
+        plan = repartidor.generar_plan(temas, config, date(2026, 10, 26))
+        # A entra entero; B se queda fuera.
+        self.assertEqual(planificador.resumen_por_tema(plan), [("A", 50, 50), ("B", 0, 25)])
+
+    def test_capacidad_semanal(self):
+        # Configuración por defecto: 6 días de 120 minutos.
+        config = copy.deepcopy(almacen.CONFIG_POR_DEFECTO)
+        # 720 minutos.
+        self.assertEqual(planificador.capacidad_semanal(config), 720)
+        # Un día que empieza a las 23:00 solo aporta 60 minutos.
+        config["horario"] = {"lunes": "23:00"}
+        # 60 minutos.
+        self.assertEqual(planificador.capacidad_semanal(config), 60)
+        # Sin máximo diario no hay cifra.
+        config["maximo_minutos_por_dia"] = 0
+        # Ninguna.
+        self.assertIsNone(planificador.capacidad_semanal(config))
 
 
 # Permite ejecutar este archivo directamente.

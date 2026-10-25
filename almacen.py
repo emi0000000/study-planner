@@ -35,6 +35,8 @@ PRIORIDAD_MINIMA = 1
 PRIORIDAD_MAXIMA = 5
 # Una semana tiene 7 * 24 * 60 = 10080 minutos: ningún tema puede pedir más.
 MINUTOS_EN_UNA_SEMANA = 7 * 24 * 60
+# Cómo se crea un plan nuevo; aparece en los mensajes de error. La ventana lo cambia por el nombre de su botón.
+COMO_GENERAR = "python planificador.py generar"
 
 # Ajustes que se usan si config.json no existe o le falta alguna clave.
 CONFIG_POR_DEFECTO = {
@@ -161,9 +163,23 @@ def cargar_config(ruta=None):
     if not ruta.exists():
         # Guardamos los ajustes por defecto.
         escribir_json(ruta, CONFIG_POR_DEFECTO)
-    # Leemos lo que haya en el archivo.
-    leida = leer_json(ruta, {})
-    # El archivo tiene que contener un objeto { ... }, no una lista u otra cosa.
+    # Leemos lo que haya en el archivo y lo revisamos.
+    return validar_config(leer_json(ruta, {}))
+
+
+def guardar_config(datos, ruta=None):
+    """Revisa los ajustes y, si están bien, los guarda en config.json. Devuelve los ajustes ya revisados."""
+    # Si algo está mal, validar_config lanza un error y no se guarda nada.
+    config = validar_config(datos)
+    # Guardamos la versión revisada (con los nombres de los días ya normalizados).
+    escribir_json(ruta or ARCHIVO_CONFIG, config)
+    # La devolvemos para usarla sin volver a leer el archivo.
+    return config
+
+
+def validar_config(leida):
+    """Comprueba que los ajustes tengan sentido y completa los que falten con los valores por defecto."""
+    # Tiene que ser un objeto { ... }, no una lista u otra cosa.
     if not isinstance(leida, dict):
         # Si no, avisamos.
         raise ErrorPlanificador("config.json debe contener un objeto entre llaves { }.")
@@ -329,7 +345,7 @@ def cargar_plan(ruta=None):
     # Si todavía no se generó ningún plan, explicamos cómo hacerlo.
     if not ruta.exists():
         # Mensaje para el usuario.
-        raise ErrorPlanificador("Todavía no hay un plan. Créalo con:  python planificador.py generar")
+        raise ErrorPlanificador(f"Todavía no hay un plan. Créalo con:  {COMO_GENERAR}")
     # Leemos y devolvemos el plan.
     return leer_json(ruta, {})
 

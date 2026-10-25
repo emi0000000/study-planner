@@ -51,6 +51,85 @@ def nombre_dia(fecha):
     return f"{visible} {fecha:%d/%m}"
 
 
+def resumen_por_tema(plan):
+    """Devuelve [(tema, minutos_en_el_plan, minutos_pedidos), ...] en el orden en que aparecen los temas."""
+    # Minutos planificados por tema.
+    planificados = {}
+    # Minutos pedidos por tema (planificados + los que no entraron).
+    pedidos = {}
+    # Sumamos las sesiones que sí entraron.
+    for sesion in plan["sesiones"]:
+        # Suma a planificados.
+        planificados[sesion.tema] = planificados.get(sesion.tema, 0) + sesion.minutos
+        # Suma a pedidos.
+        pedidos[sesion.tema] = pedidos.get(sesion.tema, 0) + sesion.minutos
+    # Sumamos también las que no entraron (solo a pedidos).
+    for sesion in plan["sin_lugar"]:
+        # Suma a pedidos.
+        pedidos[sesion.tema] = pedidos.get(sesion.tema, 0) + sesion.minutos
+    # Una tupla por tema.
+    return [(tema, planificados.get(tema, 0), minutos) for tema, minutos in pedidos.items()]
+
+
+def capacidad_semanal(config):
+    """Minutos de estudio que caben como mucho en una semana, o None si no hay máximo diario."""
+    # Máximo diario.
+    maximo = config["maximo_minutos_por_dia"]
+    # Sin máximo no hay un tope claro.
+    if not maximo:
+        # Sin cifra.
+        return None
+    # Cada día cabe el máximo diario, o menos si antes se llega a medianoche (sin contar descansos).
+    return sum(min(maximo, repartidor.minutos_hasta_medianoche(hora)) for hora in config["horario"].values())
+
+
+def cargar_plan_para_subir():
+    """Lee el plan guardado y comprueba que tenga sesiones y que no haya terminado ya."""
+    # Leemos el plan guardado.
+    plan = repartidor.plan_desde_dict(almacen.cargar_plan())
+    # Si el plan no tiene sesiones, no hay nada que subir.
+    if not plan["sesiones"]:
+        # Explicamos.
+        raise almacen.ErrorPlanificador(
+            f"El plan guardado no tiene sesiones. Agrega temas y vuelve a crearlo con:  {almacen.COMO_GENERAR}"
+        )
+    # Si el plan ya terminó, subirlo no sirve de nada.
+    if plan["hasta"] < date.today():
+        # Explicamos.
+        raise almacen.ErrorPlanificador(
+            f"El plan guardado terminó el {plan['hasta']:%d/%m}. Genera uno nuevo con:  {almacen.COMO_GENERAR}"
+        )
+    # Todo bien.
+    return plan
+
+
+def fechas_a_limpiar(desde=None, hasta=None):
+    """Decide entre qué fechas borrar sesiones: las indicadas o, si no hay, las del plan guardado."""
+    # Si se indicó el primer día, usamos esas fechas.
+    if desde:
+        # Último día: el indicado o 6 días después.
+        hasta = hasta or desde + timedelta(days=6)
+    # --hasta solo no basta: no sabríamos desde cuándo borrar.
+    elif hasta:
+        # Explicamos cómo escribirlo.
+        raise almacen.ErrorPlanificador(
+            "Si usas --hasta, indica también --desde, por ejemplo:\n"
+            "  python planificador.py limpiar --desde 2026-10-26 --hasta 2026-11-01"
+        )
+    # Si no, usamos las fechas del plan guardado.
+    else:
+        # Leemos el plan.
+        plan = repartidor.plan_desde_dict(almacen.cargar_plan())
+        # Fechas del plan.
+        desde, hasta = plan["desde"], plan["hasta"]
+    # El último día no puede ser anterior al primero.
+    if hasta < desde:
+        # Explicamos el problema con las dos fechas.
+        raise almacen.ErrorPlanificador(f"--hasta ({hasta:%d/%m/%Y}) es anterior a --desde ({desde:%d/%m/%Y}).")
+    # Devolvemos el rango.
+    return desde, hasta
+
+
 def mostrar_sesiones(sesiones):
     """Imprime una lista de sesiones con su horario y el total de minutos."""
     # Una línea por sesión.
@@ -85,26 +164,12 @@ def mostrar_plan(plan):
         mostrar_sesiones(del_dia)
         # Línea en blanco para separar días.
         print()
-    # Minutos planificados por tema.
-    planificados = {}
-    # Minutos pedidos por tema (planificados + los que no entraron).
-    pedidos = {}
-    # Sumamos las sesiones que sí entraron.
-    for sesion in plan["sesiones"]:
-        # Suma a planificados.
-        planificados[sesion.tema] = planificados.get(sesion.tema, 0) + sesion.minutos
-        # Suma a pedidos.
-        pedidos[sesion.tema] = pedidos.get(sesion.tema, 0) + sesion.minutos
-    # Sumamos también las que no entraron (solo a pedidos).
-    for sesion in plan["sin_lugar"]:
-        # Suma a pedidos.
-        pedidos[sesion.tema] = pedidos.get(sesion.tema, 0) + sesion.minutos
     # Título del resumen.
     print("Resumen por tema:")
     # Una línea por tema.
-    for tema, minutos_pedidos in pedidos.items():
+    for tema, minutos_planificados, minutos_pedidos in resumen_por_tema(plan):
         # Por ejemplo: "  Matemáticas: 120 de 120 min".
-        print(f"  {tema}: {planificados.get(tema, 0)} de {minutos_pedidos} min")
+        print(f"  {tema}: {minutos_planificados} de {minutos_pedidos} min")
     # Si algo no entró, lo explicamos.
     if plan["sin_lugar"]:
         # Total de minutos que no entraron.
@@ -223,18 +288,8 @@ def comando_subir(args):
     """Crea las sesiones del plan guardado en Google Calendar."""
     # Leemos la configuración (calendario y minutos de aviso).
     config = almacen.cargar_config()
-    # Leemos el plan guardado.
-    plan = repartidor.plan_desde_dict(almacen.cargar_plan())
-    # Si el plan no tiene sesiones, no hay nada que subir.
-    if not plan["sesiones"]:
-        # Explicamos.
-        raise almacen.ErrorPlanificador("El plan guardado no tiene sesiones. Agrega temas y vuelve a ejecutar «generar».")
-    # Si el plan ya terminó, subirlo no sirve de nada.
-    if plan["hasta"] < date.today():
-        # Explicamos.
-        raise almacen.ErrorPlanificador(
-            f"El plan guardado terminó el {plan['hasta']:%d/%m}. Genera uno nuevo con:  python planificador.py generar"
-        )
+    # Leemos el plan guardado (comprobando que tenga sesiones y no haya terminado).
+    plan = cargar_plan_para_subir()
     # Minutos de aviso antes de cada sesión.
     aviso = config["aviso_minutos_antes"]
     # Calendario donde se crean.
@@ -275,29 +330,8 @@ def comando_limpiar(args):
     """Borra del calendario las sesiones creadas por esta app (solo esas)."""
     # Leemos la configuración (para saber qué calendario usar).
     config = almacen.cargar_config()
-    # Si el usuario indicó --desde, usamos sus fechas.
-    if args.desde:
-        # Primer día.
-        desde = args.desde
-        # Último día: el indicado o 6 días después.
-        hasta = args.hasta or desde + timedelta(days=6)
-    # --hasta solo no basta: no sabríamos desde cuándo borrar.
-    elif args.hasta:
-        # Explicamos cómo escribirlo.
-        raise almacen.ErrorPlanificador(
-            "Si usas --hasta, indica también --desde, por ejemplo:\n"
-            "  python planificador.py limpiar --desde 2026-10-26 --hasta 2026-11-01"
-        )
-    # Si no, usamos las fechas del plan guardado.
-    else:
-        # Leemos el plan.
-        plan = repartidor.plan_desde_dict(almacen.cargar_plan())
-        # Fechas del plan.
-        desde, hasta = plan["desde"], plan["hasta"]
-    # El último día no puede ser anterior al primero.
-    if hasta < desde:
-        # Explicamos el problema con las dos fechas.
-        raise almacen.ErrorPlanificador(f"--hasta ({hasta:%d/%m/%Y}) es anterior a --desde ({desde:%d/%m/%Y}).")
+    # Fechas a limpiar: las indicadas o las del plan guardado.
+    desde, hasta = fechas_a_limpiar(args.desde, args.hasta)
     # Conectamos con Google.
     print("Conectando con Google Calendar...")
     # Obtenemos el servicio.
@@ -316,12 +350,10 @@ def comando_config(args):
     print(f"Archivo de configuración: {almacen.ARCHIVO_CONFIG}\n")
     # Contenido, ordenado y con tildes.
     print(json.dumps(config, indent=2, ensure_ascii=False))
-    # Máximo diario.
-    maximo = config["maximo_minutos_por_dia"]
-    # Si hay límite, mostramos cuánto cabe por semana.
-    if maximo:
-        # Cada día cabe el máximo diario, o menos si antes se llega a medianoche (sin contar descansos).
-        capacidad = sum(min(maximo, repartidor.minutos_hasta_medianoche(hora)) for hora in config["horario"].values())
+    # Cuánto cabe por semana (None si no hay máximo diario).
+    capacidad = capacidad_semanal(config)
+    # Si hay límite, lo mostramos.
+    if capacidad is not None:
         # Mensaje.
         print(f"\nCon este horario caben hasta {capacidad} min de estudio por semana.")
 

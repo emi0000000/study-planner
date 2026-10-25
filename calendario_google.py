@@ -7,6 +7,8 @@ Todos los eventos que crea esta app llevan una marca oculta (una "propiedad priv
 Gracias a esa marca, la app puede encontrar y borrar SOLO sus eventos, sin tocar los tuyos.
 """
 
+# importlib permite saber si una librería está instalada sin cargarla.
+import importlib.util
 # Herramientas de fechas para armar los rangos de búsqueda.
 from datetime import datetime, time, timedelta
 
@@ -36,6 +38,8 @@ COLORES_POR_PRIORIDAD = {
     # Prioridad 1: gris grafito.
     1: "8",
 }
+# Cuánto esperamos a que aceptes el permiso en el navegador antes de rendirnos (5 minutos).
+ESPERA_PERMISO_SEGUNDOS = 5 * 60
 # Consejos para los errores más habituales de Google, según su código.
 PISTAS_DE_ERROR = {
     # 401: el permiso guardado ya no vale.
@@ -45,6 +49,26 @@ PISTAS_DE_ERROR = {
     # 404: el calendario indicado no existe.
     404: 'Revisa "id_calendario" en config.json (usa "primary" para tu calendario principal).',
 }
+
+
+class YaHaySesiones(ErrorPlanificador):
+    """En esas fechas ya hay sesiones de esta app en el calendario (se avisa para no duplicarlas)."""
+
+    def __init__(self, cantidad, desde, hasta):
+        # Guardamos cuántas hay, por si alguien quiere preguntar qué hacer con ellas.
+        self.cantidad = cantidad
+        # Mensaje para la terminal.
+        super().__init__(
+            f"Ya hay {cantidad} sesiones del planificador en tu calendario entre el "
+            f"{desde:%d/%m} y el {hasta:%d/%m}.\n"
+            "Para borrarlas y subir el plan nuevo usa:  python planificador.py subir --reemplazar"
+        )
+
+
+def hay_librerias():
+    """True si están instaladas las librerías de Google (lo comprueba sin cargarlas)."""
+    # find_spec devuelve None si la librería no está instalada.
+    return all(importlib.util.find_spec(nombre) is not None for nombre in ("googleapiclient", "google_auth_oauthlib"))
 
 
 def credenciales_con_otro_nombre(carpeta):
@@ -71,6 +95,8 @@ def conectar(ruta_credenciales=None, ruta_token=None):
         from google.oauth2.credentials import Credentials
         # Flujo de inicio de sesión para apps de escritorio.
         from google_auth_oauthlib.flow import InstalledAppFlow
+        # Error que da Google cuando no concede el permiso (por ejemplo, si pulsas "Cancelar").
+        from oauthlib.oauth2.rfc6749.errors import OAuth2Error
         # Función que construye el "servicio" para hablar con la API.
         from googleapiclient.discovery import build
     # Si falta alguna librería...
@@ -136,15 +162,39 @@ def conectar(ruta_credenciales=None, ruta_token=None):
             raise ErrorPlanificador(mensaje)
         # Preparamos el inicio de sesión con tus credenciales y el permiso que pedimos.
         flujo = InstalledAppFlow.from_client_secrets_file(str(ruta_credenciales), ALCANCES)
-        # Abrimos el navegador; port=0 elige un puerto libre del ordenador automáticamente.
-        credenciales = flujo.run_local_server(
-            # Puerto libre cualquiera.
-            port=0,
-            # Mensaje que se muestra en la terminal ({url} se reemplaza por la dirección).
-            authorization_prompt_message="Se abrirá el navegador para dar permiso. Si no se abre, entra a:\n{url}",
-            # Mensaje que verás en el navegador al terminar.
-            success_message="Listo. Ya puedes cerrar esta pestaña y volver al planificador.",
-        )
+        # Abrimos el navegador y esperamos tu respuesta.
+        try:
+            # port=0 elige un puerto libre del ordenador automáticamente.
+            credenciales = flujo.run_local_server(
+                # Puerto libre cualquiera.
+                port=0,
+                # Mensaje que se muestra en la terminal ({url} se reemplaza por la dirección).
+                authorization_prompt_message="Se abrirá el navegador para dar permiso. Si no se abre, entra a:\n{url}",
+                # Mensaje que verás en el navegador al terminar.
+                success_message="Listo. Ya puedes cerrar esta pestaña y volver al planificador.",
+                # Si en este tiempo no llega respuesta, dejamos de esperar.
+                timeout_seconds=ESPERA_PERMISO_SEGUNDOS,
+            )
+        # Se acabó el tiempo sin respuesta (Google lo avisa con un error de tipo AttributeError).
+        except AttributeError as error:
+            # Explicamos qué pudo pasar.
+            raise ErrorPlanificador(
+                f"No llegó el permiso de Google a tiempo ({ESPERA_PERMISO_SEGUNDOS // 60} minutos). Vuelve a intentarlo.\n"
+                "Si el navegador decía «Acceso bloqueado», añade tu correo en Test users (GUIA_DE_INICIO.md, paso 4.3)."
+            ) from error
+        # Google respondió que no (lo más común: se pulsó "Cancelar").
+        except OAuth2Error as error:
+            # Explicamos cómo seguir.
+            raise ErrorPlanificador(
+                f"Google no dio el permiso ({error.error}). Vuelve a intentarlo y pulsa «Continuar» en el navegador."
+            ) from error
+        # Así avisa la librería cuando no se marcó la casilla del permiso de Calendar.
+        except Warning as error:
+            # Explicamos qué marcar.
+            raise ErrorPlanificador(
+                "Falta el permiso para ver y editar eventos. Vuelve a intentarlo y, en el navegador, "
+                "marca la casilla del permiso de Google Calendar."
+            ) from error
     # Guardamos el permiso (nuevo o renovado) para la próxima vez.
     ruta_token.write_text(credenciales.to_json(), encoding="utf-8")
     # Construimos y devolvemos el servicio de Google Calendar (versión 3 de la API).
@@ -296,11 +346,7 @@ def subir_plan(servicio, id_calendario, plan, aviso_minutos, reemplazar=False):
     # Si hay y no nos pidieron reemplazarlas...
     if existentes and not reemplazar:
         # ...paramos y explicamos qué hacer.
-        raise ErrorPlanificador(
-            f"Ya hay {len(existentes)} sesiones del planificador en tu calendario entre el "
-            f"{plan['desde']:%d/%m} y el {plan['hasta']:%d/%m}.\n"
-            "Para borrarlas y subir el plan nuevo usa:  python planificador.py subir --reemplazar"
-        )
+        raise YaHaySesiones(len(existentes), plan["desde"], plan["hasta"])
     # Si hay que reemplazar, borramos las viejas (si no hay, borra 0).
     borrados = borrar_eventos(servicio, id_calendario, existentes)
     # Contador de eventos creados.

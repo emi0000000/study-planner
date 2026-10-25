@@ -75,15 +75,16 @@ Lo único que lleva un poco más de trabajo es el paso 4. Los demás son instala
 
    Al final debe decir **`OK`**. Si dice `FAILED`, copia el mensaje y pídeme ayuda.
 
-A partir de aquí ya puedes usar el planificador **sin Google**: agregar temas, generar el plan y ver qué te toca cada día. Pruébalo:
+A partir de aquí ya puedes usar el planificador **sin Google**: agregar temas, generar el plan y ver qué te toca cada día.
 
-```
-python planificador.py agregar "Matemáticas" --prioridad 5 --minutos 150
-python planificador.py generar
-python planificador.py subir --simular
-```
+**Abre la ventana:** en la carpeta del programa, haz **doble clic en `Abrir planificador.bat`**. Pruébala:
 
-`subir --simular` te enseña lo que se crearía en el calendario, sin conectarse a nada.
+1. En la pestaña **Temas**, escribe un tema (por ejemplo `Matemáticas`), elige su prioridad y sus minutos por semana, y pulsa **Guardar tema**. Repite con tus otros temas.
+2. En la pestaña **Semana**, pulsa **Generar plan**. Verás tus sesiones repartidas día por día.
+3. En la pestaña **Google Calendar**, pulsa **Ver qué se subiría**: te enseña lo que se crearía en el calendario, sin conectarse a nada.
+
+> Si prefieres la terminal, lo mismo se hace con:
+> `python planificador.py agregar "Matemáticas" --prioridad 5 --minutos 150`, luego `python planificador.py generar` y `python planificador.py subir --simular`.
 
 ---
 
@@ -154,11 +155,9 @@ Este archivo le dice a Google que **tu** programa puede crear eventos en **tu** 
 
 ## Paso 5. Primera conexión con Google
 
-En la terminal, dentro de la carpeta del programa:
+En la ventana, ve a la pestaña **Google Calendar**. Los dos primeros puntos de **1. Conexión** deben estar en verde (si no, debajo dice qué falta). Pulsa **Subir al calendario**.
 
-```
-python planificador.py subir
-```
+(En la terminal sería: `python planificador.py subir`.)
 
 Se abrirá el navegador:
 
@@ -166,11 +165,13 @@ Se abrirá el navegador:
 2. Verás **"Google no ha verificado esta app"**. Es normal: la app es tuya y no está publicada. Pulsa **Continuar**.
    (Si no ves ese botón, pulsa **Configuración avanzada** y luego **Ir a Planificador de estudio**.)
 3. Google te pide permiso para **ver y editar eventos** de tus calendarios. Si aparece una casilla junto al permiso, **márcala**. Luego pulsa **Continuar**.
-4. Cuando el navegador diga **"Listo. Ya puedes cerrar esta pestaña"**, vuelve a la terminal.
+4. Cuando el navegador diga **"Listo. Ya puedes cerrar esta pestaña"**, vuelve a la ventana.
 
-En la terminal debe aparecer `Listo: N sesiones creadas en Google Calendar`. Abre <https://calendar.google.com> y verás eventos como **Estudiar: Matemáticas (1/6)**.
+La ventana dirá **¡Listo!** con el número de sesiones creadas. Abre <https://calendar.google.com> y verás eventos como **Estudiar: Matemáticas (1/6)**.
 
-> **Cada 7 días** Google pide el permiso otra vez (porque la app está en modo de prueba). Cuando pase, el navegador se abrirá solo al usar `subir` o `limpiar`: solo tienes que aceptar de nuevo.
+> Si en 5 minutos no aceptas el permiso, el programa deja de esperar y te avisa. Solo tienes que volver a pulsar **Subir al calendario**.
+
+> **Cada 7 días** Google pide el permiso otra vez (porque la app está en modo de prueba). Cuando pase, el navegador se abrirá solo al subir o borrar sesiones: solo tienes que aceptar de nuevo.
 
 ---
 
@@ -190,9 +191,10 @@ Cada sesión te avisará **5 minutos antes** (puedes cambiarlo en `config.json`,
 - [ ] `python --version` muestra 3.10 o más.
 - [ ] Tengo la carpeta del programa y dentro está `planificador.py`.
 - [ ] `python -m unittest discover -s tests` termina en `OK`.
+- [ ] La ventana se abre con doble clic en `Abrir planificador.bat`.
 - [ ] En Google Cloud: proyecto creado, API de Calendar habilitada, mi correo en *Test users*.
 - [ ] `credentials.json` está en la carpeta del programa, con ese nombre exacto.
-- [ ] `python planificador.py subir` creó las sesiones y las veo en calendar.google.com.
+- [ ] Subí el plan (botón **Subir al calendario**) y veo las sesiones en calendar.google.com.
 - [ ] Google Calendar está en el teléfono, con la misma cuenta y las notificaciones activadas.
 
 Si marcaste todo, ya está funcionando.
@@ -201,12 +203,14 @@ Si marcaste todo, ya está funcionando.
 
 ## Uso de cada semana
 
-| Cuándo | Qué escribir |
-|---|---|
-| El domingo (o el primer día de tu semana) | `python planificador.py generar` y luego `python planificador.py subir` |
-| Cada día, para ver lo que te toca | `python planificador.py hoy` |
-| Si cambias un tema a mitad de semana | `python planificador.py generar` y luego `python planificador.py subir --reemplazar` |
-| Para borrar del calendario las sesiones del plan | `python planificador.py limpiar` (solo borra las que creó esta app) |
+| Cuándo | En la ventana | En la terminal |
+|---|---|---|
+| El domingo (o el primer día de tu semana) | **Semana → Generar plan** y luego **Google Calendar → Subir al calendario** | `python planificador.py generar` y luego `python planificador.py subir` |
+| Cada día, para ver lo que te toca | Pestaña **Hoy** | `python planificador.py hoy` |
+| Si cambias un tema a mitad de semana | Cambia el tema en **Temas**, pulsa **Generar plan** y **Subir al calendario** (te preguntará si reemplazar las sesiones anteriores: di que sí) | `python planificador.py generar` y luego `python planificador.py subir --reemplazar` |
+| Para borrar del calendario las sesiones del plan | **Google Calendar → Borrar del calendario…** | `python planificador.py limpiar` |
+
+Borrar solo quita las sesiones que creó esta app: tus otros eventos no se tocan.
 
 Todos los comandos y ajustes están explicados en el [README](README.md).
 
@@ -216,11 +220,12 @@ Todos los comandos y ajustes están explicados en el [README](README.md).
 
 | Lo que ves | Qué hacer |
 |---|---|
+| Doble clic en `Abrir planificador.bat` y no se abre nada | Abre la terminal en la carpeta del programa (paso 3) y escribe `python interfaz.py`: verás el mensaje de error. |
 | `Faltan las librerías de Google` | Repite el paso 3. |
 | `No encuentro credentials.json` | Repite el paso 4.5. Si el mensaje dice "Pero encontré…", renombra el archivo que indica. |
 | En el navegador: **"Acceso bloqueado"** o **error 403: access_denied** | Falta tu correo en *Test users* (paso 4.3, punto 6). |
 | `Google Calendar respondió con un error (403)` | La API no está habilitada, o el proyecto seleccionado no es el correcto (paso 4.2). |
 | En el navegador: **error redirect_uri_mismatch** | Creaste el cliente como *Web application*. Crea otro como **Desktop app** (paso 4.4) y reemplaza `credentials.json`. |
-| `Ya hay N sesiones del planificador en tu calendario…` | Ya las habías subido. Usa `python planificador.py subir --reemplazar`. |
+| `Ya hay N sesiones del planificador en tu calendario…` | Ya las habías subido. En la ventana, di que sí cuando te pregunte si reemplazarlas; en la terminal, usa `python planificador.py subir --reemplazar`. |
 | No llegan avisos al teléfono | Revisa el paso 6: misma cuenta y notificaciones activadas. |
 | Otra cosa | Copia el mensaje completo y pídeme ayuda. Hay más casos en la sección 10 del [README](README.md). |

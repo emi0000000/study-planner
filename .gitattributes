@@ -1,0 +1,2 @@
+# Los .bat de Windows necesitan saltos de línea de Windows (CRLF) para funcionar bien.
+*.bat text eol=crlf
