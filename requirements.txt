@@ -2,3 +2,6 @@
 google-api-python-client>=2.100
 google-auth-httplib2>=0.2
 google-auth-oauthlib>=1.2
+# Asistente con IA: librería oficial de Anthropic (Claude) y de Google (Gemini). Solo hace falta para el asistente.
+anthropic>=2.3
+google-genai>=2.33

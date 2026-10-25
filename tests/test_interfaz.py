@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # Módulos de la app.
 import almacen  # noqa: E402
 import calendario_google  # noqa: E402
+import progreso  # noqa: E402
 
 # Intentamos cargar tkinter.
 try:
@@ -90,9 +91,8 @@ def textos(control):
     return encontrados
 
 
-@unittest.skipUnless(HAY_PANTALLA, "no hay tkinter o no hay pantalla donde abrir la ventana")
-class Ventana(unittest.TestCase):
-    """Usa la ventana de principio a fin con datos de prueba."""
+class BaseVentana(unittest.TestCase):
+    """Base de las pruebas de la ventana: datos en una carpeta temporal y cuadros de mensaje de mentira."""
 
     def setUp(self):
         # Carpeta temporal para los datos de la prueba.
@@ -109,6 +109,14 @@ class Ventana(unittest.TestCase):
             patch.object(almacen, "ARCHIVO_TEMAS", base / "datos" / "temas.json"),
             # Plan.
             patch.object(almacen, "ARCHIVO_PLAN", base / "datos" / "plan.json"),
+            # Sesiones hechas y no hechas.
+            patch.object(almacen, "ARCHIVO_REGISTRO", base / "datos" / "registro.json"),
+            # Metas.
+            patch.object(almacen, "ARCHIVO_METAS", base / "datos" / "metas.json"),
+            # Notas del asistente.
+            patch.object(almacen, "ARCHIVO_MEMORIA", base / "datos" / "memoria.json"),
+            # Claves del asistente.
+            patch.object(almacen, "ARCHIVO_CLAVES", base / "datos" / "claves.json"),
             # La ventana cambia este texto: lo dejamos como estaba al terminar.
             patch.object(almacen, "COMO_GENERAR", almacen.COMO_GENERAR),
             # Archivo de credenciales.
@@ -176,6 +184,12 @@ class Ventana(unittest.TestCase):
         self.agregar_tema("Inglés", 3, 50)
         # Botón «Generar plan».
         self.app.pestana_semana.generar(desde=proximo_lunes())
+
+
+
+@unittest.skipUnless(HAY_PANTALLA, "no hay tkinter o no hay pantalla donde abrir la ventana")
+class Ventana(BaseVentana):
+    """Usa la ventana de principio a fin con datos de prueba."""
 
     def test_temas_plan_y_hoy(self):
         # Agregamos dos temas con el formulario.
@@ -334,6 +348,170 @@ class Ventana(unittest.TestCase):
         self.assertIsNone(self.app.plan)
         # Y avisa abajo de que está dañado.
         self.assertIn("dañado", self.app.barra_avisos.cget("text"))
+
+
+@unittest.skipUnless(HAY_PANTALLA, "no hay tkinter o no hay pantalla donde abrir la ventana")
+class VentanaAdaptativa(BaseVentana):
+    """Marcar sesiones, metas, progreso y asistente desde la ventana."""
+
+    def plan_con_hoy(self, dias_atras=0):
+        """Plan que estudia todos los días a las 06:00 y empieza hace `dias_atras` días."""
+        # Todos los días de la semana.
+        almacen.guardar_config({**almacen.cargar_config(), "horario": {d: "06:00" for d in almacen.DIAS_SEMANA}})
+        # Dos temas.
+        self.agregar_tema("Matemáticas", 0, 175)
+        # Segundo tema.
+        self.agregar_tema("Química", 3, 175)
+        # Plan.
+        self.app.pestana_semana.generar(desde=date.today() - timedelta(days=dias_atras))
+
+    def test_marcar_desde_hoy_y_ver_el_progreso(self):
+        # Plan que incluye hoy.
+        self.plan_con_hoy()
+        # Primera sesión de hoy.
+        sesion = next(s for s in self.app.plan["sesiones"] if s.inicio.date() == date.today())
+        # La marcamos como hecha (como el botón «Hecha»).
+        self.app.pestana_hoy.marcar(sesion, "hecha")
+        # Quedó guardada.
+        self.assertEqual(progreso.estado_de(almacen.cargar_registro(), sesion), "hecha")
+        # La pestaña Metas cuenta una hecha.
+        self.assertIn("1 sesiones hechas", self.app.pestana_metas.totales.cget("text"))
+        # Pulsar otra vez quita la marca.
+        self.app.pestana_hoy.marcar(sesion, None)
+        # Ya no está marcada.
+        self.assertIsNone(progreso.estado_de(almacen.cargar_registro(), sesion))
+
+    def test_sesiones_atrasadas_y_plan_que_recupera(self):
+        # Plan que empezó hace 3 días.
+        self.plan_con_hoy(dias_atras=3)
+        # Hoy muestra las de días anteriores sin marcar.
+        self.app.pestana_hoy.refrescar()
+        # Sección.
+        self.assertTrue(any(t.startswith("Sin marcar de días anteriores") for t in textos(self.app.pestana_hoy.lista)))
+        # Marcamos una de anteayer como no hecha.
+        sesion = next(s for s in self.app.plan["sesiones"] if s.inicio.date() == date.today() - timedelta(days=2))
+        # No hecha.
+        self.app.pestana_hoy.marcar(sesion, "no_hecha")
+        # Generamos un plan nuevo desde mañana.
+        self.app.pestana_semana.generar(desde=date.today() + timedelta(days=1))
+        # Tiene una sesión de recuperación.
+        self.assertTrue(any(s.recuperacion for s in self.app.plan["sesiones"]))
+        # Y la pestaña Semana explica cómo se adaptó.
+        self.assertIn("Cómo se adaptó", self.app.pestana_semana.notas.cget("text"))
+
+    def test_metas_desde_la_ventana(self):
+        # Un tema para la meta.
+        self.agregar_tema("Química", 3, 100)
+        # Pestaña de metas.
+        metas = self.app.pestana_metas
+        # Escribimos una meta con tema y fecha.
+        metas.texto.set("Examen de Química")
+        # Tema (la lista empieza por «(ninguno)»).
+        metas.tema.current(1)
+        # Fecha.
+        metas.fecha.set((date.today() + timedelta(days=5)).isoformat())
+        # Botón «Guardar meta».
+        metas.guardar()
+        # Guardada con su tema.
+        self.assertEqual([(m["texto"], m["tema"]) for m in almacen.cargar_metas()], [("Examen de Química", "Química")])
+        # El plan conviene generarlo otra vez.
+        self.assertTrue(self.app.plan_desactualizado)
+        # La elegimos y la marcamos como cumplida.
+        metas.tabla.selection_set("1")
+        # Botón «Cumplida / pendiente».
+        metas.alternar()
+        # Cumplida.
+        self.assertTrue(almacen.cargar_metas()[0]["cumplida"])
+        # Botón «Quitar» (askyesno responde "sí").
+        metas.quitar()
+        # Ya no hay metas.
+        self.assertEqual(almacen.cargar_metas(), [])
+        # Una fecha mal escrita da error y no guarda nada.
+        metas.texto.set("Otra meta")
+        # Fecha imposible.
+        metas.fecha.set("31/12")
+        # Intento.
+        metas.guardar()
+        # Error mostrado.
+        self.mensajes["showerror"].assert_called_once()
+        # Nada guardado.
+        self.assertEqual(almacen.cargar_metas(), [])
+
+    def test_asistente_configurar_y_conversar(self):
+        # Pestaña del asistente.
+        pestana = self.app.pestana_asistente
+        # Sin clave, se muestra la configuración.
+        self.assertTrue(pestana.ajuste.winfo_manager())
+        # Elegimos Gemini y pegamos una clave.
+        pestana.proveedor.set("gemini")
+        # Modelo de Gemini.
+        pestana._al_cambiar_proveedor()
+        # Clave.
+        pestana.clave.set("clave-de-prueba")
+        # Botón «Guardar y empezar».
+        pestana.guardar_configuracion()
+        # Guardada, elegida y de vuelta al chat.
+        self.assertEqual((almacen.cargar_claves()["gemini"], almacen.cargar_config()["asistente"],
+                          bool(pestana.chat.winfo_manager())), ("clave-de-prueba", "gemini", True))
+        # Conversación de mentira: avisa de una acción y responde con formato Markdown.
+        pestana.conversacion = Mock()
+        # Respuesta.
+        pestana.conversacion.enviar.side_effect = lambda texto, avisar: (avisar("Meta guardada: Examen."),
+                                                                          "**Hecho.** Te lo apunto.")[1]
+        # Escribimos y enviamos.
+        pestana.entrada.insert(0, "Tengo examen el viernes")
+        # Botón «Enviar».
+        pestana.enviar()
+        # Esperamos a la respuesta.
+        self.esperar()
+        # La conversación muestra el mensaje, la acción y la respuesta sin asteriscos.
+        texto = pestana.texto.get("1.0", "end")
+        # Comprobamos.
+        self.assertIn("Tengo examen el viernes", texto)
+        # Acción.
+        self.assertIn("Meta guardada: Examen.", texto)
+        # Respuesta.
+        self.assertIn("Hecho. Te lo apunto.", texto)
+        # Ya no pone «Pensando…».
+        self.assertNotIn("Pensando", texto)
+        # La casilla vuelve a estar disponible.
+        self.assertNotIn("disabled", pestana.entrada.state())
+
+    def test_asistente_sin_clave_explica_y_muestra_la_configuracion(self):
+        # Pestaña del asistente.
+        pestana = self.app.pestana_asistente
+        # Volvemos al chat a la fuerza (sin clave).
+        pestana.mostrar_chat()
+        # Crear la conversación falla por falta de clave.
+        patch.object(interfaz.asistente, "crear_conversacion",
+                     side_effect=almacen.ErrorPlanificador("Falta la clave de Claude.")).start()
+        # Escribimos y enviamos.
+        pestana.entrada.insert(0, "hola")
+        # Botón «Enviar».
+        pestana.enviar()
+        # Esperamos.
+        self.esperar()
+        # El error aparece en la conversación (sin ventanita).
+        self.assertIn("No pude responder: Falta la clave de Claude.", pestana.texto.get("1.0", "end"))
+        # Sin ventanita de error.
+        self.mensajes["showerror"].assert_not_called()
+        # Y se muestra la configuración.
+        self.assertTrue(pestana.ajuste.winfo_manager())
+
+    def test_ajustes_conserva_la_ia_elegida(self):
+        # IA y modelo elegidos.
+        almacen.guardar_config({**almacen.cargar_config(), "asistente": "gemini", "modelo_gemini": "gemini-prueba"})
+        # Cargamos los ajustes en la pestaña.
+        self.app.pestana_ajustes.refrescar()
+        # Desactivamos la recuperación.
+        self.app.pestana_ajustes.recuperar.set(False)
+        # Botón «Guardar ajustes».
+        self.app.pestana_ajustes.guardar()
+        # Configuración guardada.
+        config = almacen.cargar_config()
+        # Se conserva la IA y se guardó la recuperación.
+        self.assertEqual((config["asistente"], config["modelo_gemini"], config["recuperar_no_hechas"]),
+                         ("gemini", "gemini-prueba", False))
 
 
 # Permite ejecutar este archivo directamente.

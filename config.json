@@ -14,5 +14,9 @@
     "sabado": "10:00"
   },
   "aviso_minutos_antes": 5,
-  "id_calendario": "primary"
+  "id_calendario": "primary",
+  "recuperar_no_hechas": true,
+  "asistente": "claude",
+  "modelo_claude": "claude-opus-5-5",
+  "modelo_gemini": "gemini-3.8-flash"
 }

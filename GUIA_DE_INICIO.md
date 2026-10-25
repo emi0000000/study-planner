@@ -13,8 +13,9 @@ Calcula unos **30 minutos** la primera vez. Solo se hace una vez.
 | 3 | **Las librerías de Google** | Un comando en la terminal | Gratis | 1 min |
 | 4 | **`credentials.json`** (el permiso para usar tu Google Calendar) | Google Cloud | Gratis, sin tarjeta | 10-15 min |
 | 5 | **Google Calendar en el teléfono** | Play Store o App Store | Gratis | 2 min |
+| 6 | **Clave de Gemini o de Claude** (solo si quieres el asistente con IA) | aistudio.google.com o platform.claude.com | Gemini: nivel gratuito. Claude: de pago | 5 min |
 
-Lo único que lleva un poco más de trabajo es el paso 4. Los demás son instalar y listo.
+Lo único que lleva un poco más de trabajo es el paso 4. Los demás son instalar y listo. El asistente (paso 7) es opcional: todo lo demás funciona sin él.
 
 ---
 
@@ -56,7 +57,7 @@ Lo único que lleva un poco más de trabajo es el paso 4. Los demás son instala
 
 ---
 
-## Paso 3. Instalar las librerías de Google
+## Paso 3. Instalar las librerías
 
 1. Abre la carpeta del programa en el Explorador de archivos (la carpeta donde está `planificador.py`).
 2. Haz clic derecho en un espacio vacío de la carpeta y elige **Abrir en Terminal**.
@@ -186,6 +187,44 @@ Cada sesión te avisará **5 minutos antes** (puedes cambiarlo en `config.json`,
 
 ---
 
+## Paso 7. Activar el asistente (opcional)
+
+El asistente es un chat dentro del planificador: le cuentas cómo te va ("hoy no pude estudiar química", "el viernes tengo examen de inglés") y él marca lo hecho, guarda tus metas y ajusta el plan. Funciona con una de estas dos inteligencias artificiales; elige **una**:
+
+| | **Gemini** (de Google) | **Claude** (de Anthropic) |
+|---|---|---|
+| Precio | **Nivel gratuito** con límites (unos cuantos mensajes por minuto y por día). | **De pago** según el uso: compras saldo por adelantado (desde unos 5 USD) y cada mensaje cuesta unos céntimos. |
+| Cuenta | Tu misma cuenta de Google. | Una cuenta de la plataforma de Anthropic (es distinta de una suscripción a Claude Pro o Max, que no incluye esto). |
+| Recomendado si… | Quieres probarlo sin pagar. | Ya tienes saldo o prefieres Claude. |
+
+### 7.1 Conseguir la clave de Gemini (gratis)
+
+1. Entra a <https://aistudio.google.com/apikey> con tu cuenta de Google y acepta las condiciones si te las pide.
+2. Pulsa **Create API key** (Crear clave de API). Si te pregunta por un proyecto, elige cualquiera (puede ser el `planificador-estudio` del paso 4) o deja que cree uno nuevo.
+3. Copia la clave (empieza por `AIza…`). Guárdala en un sitio seguro: es como una contraseña.
+
+> En el nivel gratuito, Google puede usar lo que envías para mejorar sus productos. No escribas en el chat nada que no quieras compartir.
+
+### 7.2 Conseguir la clave de Claude (de pago)
+
+1. Entra a <https://platform.claude.com> y crea una cuenta (o inicia sesión).
+2. Ve a **Settings → Billing** y compra saldo (créditos). Sin saldo, la clave no funciona.
+3. Ve a **Settings → API keys** y pulsa **Create key**. Ponle un nombre, por ejemplo `planificador`.
+4. Copia la clave (empieza por `sk-ant-…`). **Solo se muestra una vez**: si la pierdes, crea otra.
+
+### 7.3 Ponerla en el planificador
+
+1. Abre la ventana y ve a la pestaña **Asistente**. La primera vez aparece directamente la configuración (después, botón **Cambiar IA o clave**).
+2. Elige **Gemini** o **Claude**, pega la clave en **Clave** y deja el **Modelo** como está.
+3. Pulsa **Guardar y empezar**.
+4. Escribe algo, por ejemplo **«¿Cómo voy esta semana?»**, y pulsa **Enviar** (o usa los botones de ejemplo).
+
+La clave se guarda solo en tu ordenador, en `datos/claves.json`. Lo que escribes en el chat y tus datos de estudio (temas, plan, progreso, metas) se envían a la IA elegida para que pueda responder.
+
+> En la terminal: `python planificador.py clave gemini` (te pide la clave sin que se vea) y luego `python planificador.py asistente`.
+
+---
+
 ## Lista de comprobación
 
 - [ ] `python --version` muestra 3.10 o más.
@@ -196,6 +235,7 @@ Cada sesión te avisará **5 minutos antes** (puedes cambiarlo en `config.json`,
 - [ ] `credentials.json` está en la carpeta del programa, con ese nombre exacto.
 - [ ] Subí el plan (botón **Subir al calendario**) y veo las sesiones en calendar.google.com.
 - [ ] Google Calendar está en el teléfono, con la misma cuenta y las notificaciones activadas.
+- [ ] (Opcional) El asistente responde en la pestaña **Asistente**.
 
 Si marcaste todo, ya está funcionando.
 
@@ -207,10 +247,14 @@ Si marcaste todo, ya está funcionando.
 |---|---|---|
 | El domingo (o el primer día de tu semana) | **Semana → Generar plan** y luego **Google Calendar → Subir al calendario** | `python planificador.py generar` y luego `python planificador.py subir` |
 | Cada día, para ver lo que te toca | Pestaña **Hoy** | `python planificador.py hoy` |
+| Al terminar cada sesión (o si no pudiste) | Pestaña **Hoy**: botón **Hecha** o **No la hice** | `python planificador.py marcar hecha "Tema"` (o `marcar no "Tema"`) |
+| Cuando tengas un examen o una entrega | Pestaña **Metas**: escríbela con su tema y fecha (o díselo al asistente) | `python planificador.py meta "Examen" --tema Química --fecha 2026-11-13` |
 | Si cambias un tema a mitad de semana | Cambia el tema en **Temas**, pulsa **Generar plan** y **Subir al calendario** (te preguntará si reemplazar las sesiones anteriores: di que sí) | `python planificador.py generar` y luego `python planificador.py subir --reemplazar` |
 | Para borrar del calendario las sesiones del plan | **Google Calendar → Borrar del calendario…** | `python planificador.py limpiar` |
 
 Borrar solo quita las sesiones que creó esta app: tus otros eventos no se tocan.
+
+**Por qué marcar las sesiones:** el plan de la semana siguiente añade el tiempo de las que marcaste como no hechas para que lo recuperes, y tus metas con fecha hacen que ese tema se estudie más y antes. Arriba del plan verás «Cómo se adaptó este plan» con lo que cambió.
 
 Todos los comandos y ajustes están explicados en el [README](README.md).
 
@@ -226,6 +270,9 @@ Todos los comandos y ajustes están explicados en el [README](README.md).
 | En el navegador: **"Acceso bloqueado"** o **error 403: access_denied** | Falta tu correo en *Test users* (paso 4.3, punto 6). |
 | `Google Calendar respondió con un error (403)` | La API no está habilitada, o el proyecto seleccionado no es el correcto (paso 4.2). |
 | En el navegador: **error redirect_uri_mismatch** | Creaste el cliente como *Web application*. Crea otro como **Desktop app** (paso 4.4) y reemplaza `credentials.json`. |
+| `Falta la clave de …` o `La clave de … no es válida` (asistente) | Repite el paso 7 y vuelve a pegar la clave en **Asistente → Cambiar IA o clave**. |
+| `Tu cuenta de Claude no tiene saldo` | Compra saldo (paso 7.2, punto 2) o cambia a Gemini. |
+| `Se acabó el límite gratuito de Gemini` | Espera un rato (o hasta el día siguiente) y vuelve a intentarlo. |
 | `Ya hay N sesiones del planificador en tu calendario…` | Ya las habías subido. En la ventana, di que sí cuando te pregunte si reemplazarlas; en la terminal, usa `python planificador.py subir --reemplazar`. |
 | No llegan avisos al teléfono | Revisa el paso 6: misma cuenta y notificaciones activadas. |
-| Otra cosa | Copia el mensaje completo y pídeme ayuda. Hay más casos en la sección 10 del [README](README.md). |
+| Otra cosa | Copia el mensaje completo y pídeme ayuda. Hay más casos en la sección 12 del [README](README.md). |

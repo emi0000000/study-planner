@@ -9,6 +9,11 @@ Pasos que sigue generar_plan():
        - las sesiones de un día terminan como muy tarde a medianoche.
   3. Ordena las sesiones de cada día: lo prioritario primero y sin repetir el mismo tema seguido.
   4. Les pone hora de inicio y fin, con descansos entre medias.
+
+Para que el plan se adapte a lo que de verdad haces, generar_plan() acepta además:
+  - minutos para recuperar sesiones que no hiciste (se colocan después de todo lo demás, si queda sitio);
+  - fechas límite por tema (por ejemplo, un examen): sus sesiones prefieren los días anteriores.
+El módulo progreso.py calcula esos datos a partir de lo que marcas y de tus metas.
 """
 
 # dataclass crea clases sencillas para guardar datos sin escribir mucho código.
@@ -44,6 +49,8 @@ class Sesion:
     numero: int = 0
     # Cuántas sesiones tiene ese tema en total en la semana.
     total: int = 0
+    # True si la sesión sirve para recuperar otra que no se hizo.
+    recuperacion: bool = False
 
     def a_dict(self):
         """Convierte la sesión en un diccionario que se puede guardar en JSON."""
@@ -63,6 +70,8 @@ class Sesion:
             "numero": self.numero,
             # Total de sesiones del tema.
             "total": self.total,
+            # ¿Es para recuperar una sesión no hecha?
+            "recuperacion": self.recuperacion,
         }
 
     @classmethod
@@ -84,6 +93,8 @@ class Sesion:
             numero=datos.get("numero", 0),
             # Total de sesiones (0 si no estaba guardado).
             total=datos.get("total", 0),
+            # Recuperación (False si no estaba guardado).
+            recuperacion=bool(datos.get("recuperacion", False)),
         )
 
 
@@ -160,13 +171,14 @@ def duracion_con_descansos(duraciones, config):
     return sum(duraciones) + descansos
 
 
-def elegir_dia(tema, minutos, por_dia, config, disponibles):
+def elegir_dia(tema, minutos, por_dia, config, disponibles, limite=None):
     """Elige el mejor día para una sesión de `tema`, o None si no cabe en ninguno.
 
     Un día sirve si, con esta sesión, no pasa del máximo diario y termina antes de medianoche
     (`disponibles` dice cuántos minutos hay en cada día desde la hora de inicio hasta las 00:00).
 
     Entre los días donde todavía cabe, prefiere (en este orden):
+      0. si el tema tiene fecha `limite` (por ejemplo, un examen), los días anteriores a esa fecha;
       1. el que tenga menos sesiones de este mismo tema;
       2. el que no esté pegado a otro día que ya tiene este tema;
       3. el que tenga menos minutos ocupados;
@@ -196,8 +208,10 @@ def elegir_dia(tema, minutos, por_dia, config, disponibles):
         repeticiones = sum(1 for s in lista if s.tema == tema)
         # Distancia en días al día más cercano que ya tiene este tema (si no hay ninguno, la ideal).
         distancia = min((abs((fecha - otro).days) for otro in dias_con_tema), default=DISTANCIA_IDEAL)
+        # 0 si el día va antes de la fecha límite del tema (o si no tiene); 1 si va después.
+        despues_del_limite = 0 if limite is None or fecha < limite else 1
         # Armamos la puntuación: Python compara las tuplas elemento a elemento, en orden.
-        clave = (repeticiones, -min(distancia, DISTANCIA_IDEAL), ocupados, fecha)
+        clave = (despues_del_limite, repeticiones, -min(distancia, DISTANCIA_IDEAL), ocupados, fecha)
         # Si es el primer día que cabe, o es mejor que el anterior, lo guardamos.
         if mejor_clave is None or clave < mejor_clave:
             # Nuevo mejor día.
@@ -266,14 +280,22 @@ def numerar(sesiones):
             sesion.total = len(lista)
 
 
-def generar_plan(temas, config, desde):
+def generar_plan(temas, config, desde, recuperar=None, limites=None, notas=None):
     """Crea el plan de 7 días que empieza en `desde`.
+
+    Opcionales (los calcula progreso.py para adaptar el plan):
+      recuperar: {tema: minutos} que añadir para recuperar sesiones no hechas;
+      limites:   {tema: fecha} antes de la cual conviene estudiar ese tema;
+      notas:     frases que explican los cambios (se muestran con el plan).
 
     Devuelve un diccionario con:
       "desde" y "hasta": primera y última fecha del plan;
       "sesiones": lista de Sesion con hora, ordenada en el tiempo;
-      "sin_lugar": sesiones que no entraron (por el máximo diario o porque el día llegaba a medianoche).
+      "sin_lugar": sesiones que no entraron (por el máximo diario o porque el día llegaba a medianoche);
+      "notas": explicaciones de cómo se adaptó el plan.
     """
+    # Sin datos opcionales, diccionarios y listas vacíos.
+    recuperar, limites, notas = recuperar or {}, limites or {}, list(notas or [])
     # Días de estudio de esta semana con su hora de inicio.
     dias = dias_del_plan(desde, config["horario"])
     # Minutos que hay en cada día desde la hora de inicio hasta medianoche.
@@ -293,7 +315,7 @@ def generar_plan(temas, config, desde):
             # Creamos la sesión (todavía sin hora).
             sesion = Sesion(tema=tema["nombre"], prioridad=tema["prioridad"], minutos=minutos)
             # Buscamos el mejor día para ella.
-            fecha = elegir_dia(sesion.tema, minutos, por_dia, config, disponibles)
+            fecha = elegir_dia(sesion.tema, minutos, por_dia, config, disponibles, limites.get(sesion.tema))
             # Si no cabe en ningún día...
             if fecha is None:
                 # ...la apuntamos como "sin lugar".
@@ -302,6 +324,30 @@ def generar_plan(temas, config, desde):
             else:
                 # ...la añadimos a ese día.
                 por_dia[fecha].append(sesion)
+    # Después, con lo que quede libre, las recuperaciones (también por prioridad).
+    for tema in ordenados:
+        # Minutos a recuperar de este tema (0 si no hay).
+        pendientes = recuperar.get(tema["nombre"], 0)
+        # Minutos de recuperación que no caben.
+        sin_sitio = 0
+        # Partimos esos minutos en sesiones cortas.
+        for minutos in partir_en_bloques(pendientes, config["duracion_sesion"], config["duracion_minima"]):
+            # Sesión de recuperación.
+            sesion = Sesion(tema=tema["nombre"], prioridad=tema["prioridad"], minutos=minutos, recuperacion=True)
+            # Buscamos el mejor día para ella.
+            fecha = elegir_dia(sesion.tema, minutos, por_dia, config, disponibles, limites.get(sesion.tema))
+            # Si no cabe, lo apuntamos (no cuenta como "sin lugar": es tiempo extra).
+            if fecha is None:
+                # Suma a lo que no cupo.
+                sin_sitio += minutos
+            # Si cabe, la añadimos a ese día.
+            else:
+                # Al día elegido.
+                por_dia[fecha].append(sesion)
+        # Si algo no cupo, lo explicamos.
+        if sin_sitio:
+            # Nota para el usuario.
+            notas.append(f"No cupieron {sin_sitio} min de recuperación de «{tema['nombre']}» en esta semana.")
     # Aquí juntaremos todas las sesiones ya con hora.
     todas = []
     # Armamos cada día.
@@ -317,7 +363,8 @@ def generar_plan(temas, config, desde):
     # Ordenamos todo por fecha y hora.
     todas.sort(key=lambda s: s.inicio)
     # Devolvemos el plan completo.
-    return {"desde": desde, "hasta": desde + timedelta(days=6), "sesiones": todas, "sin_lugar": sin_lugar}
+    return {"desde": desde, "hasta": desde + timedelta(days=6), "sesiones": todas, "sin_lugar": sin_lugar,
+            "notas": notas}
 
 
 def primer_dia_por_defecto(horario, ahora):
@@ -360,6 +407,8 @@ def plan_a_dict(plan):
         "sesiones": [s.a_dict() for s in plan["sesiones"]],
         # Sesiones que no entraron.
         "sin_lugar": [s.a_dict() for s in plan["sin_lugar"]],
+        # Explicaciones de cómo se adaptó el plan.
+        "notas": list(plan.get("notas", [])),
     }
 
 
@@ -382,6 +431,8 @@ def plan_desde_dict(datos):
             "sesiones": [Sesion.desde_dict(d) for d in datos.get("sesiones", [])],
             # Sesiones sin lugar.
             "sin_lugar": [Sesion.desde_dict(d) for d in datos.get("sin_lugar", [])],
+            # Notas (lista vacía en planes antiguos).
+            "notas": [str(nota) for nota in datos.get("notas", [])],
         }
     # Falta un dato, hay algo de otro tipo o una fecha está mal escrita.
     except (KeyError, TypeError, ValueError, AttributeError) as error:

@@ -1,9 +1,13 @@
 """Lectura y escritura de los datos del planificador.
 
 Todo se guarda en archivos JSON (texto) junto al programa:
-  - config.json        -> ajustes que puedes editar a mano.
-  - datos/temas.json   -> los temas que vas agregando.
-  - datos/plan.json    -> el último plan de sesiones generado.
+  - config.json           -> ajustes que puedes editar a mano.
+  - datos/temas.json      -> los temas que vas agregando.
+  - datos/plan.json       -> el último plan de sesiones generado.
+  - datos/registro.json   -> qué sesiones hiciste y cuáles no.
+  - datos/metas.json      -> tus metas (por ejemplo, un examen con fecha).
+  - datos/memoria.json    -> notas que el asistente guarda para recordar cómo estudias.
+  - datos/claves.json     -> tus claves del asistente (Claude o Gemini). Privado.
 """
 
 # json convierte datos de Python (listas, diccionarios) en texto y al revés.
@@ -25,6 +29,14 @@ ARCHIVO_TEMAS = CARPETA_DATOS / "temas.json"
 ARCHIVO_PLAN = CARPETA_DATOS / "plan.json"
 # Archivo de ajustes que el usuario puede editar.
 ARCHIVO_CONFIG = CARPETA_APP / "config.json"
+# Archivo con las sesiones marcadas como hechas o no hechas.
+ARCHIVO_REGISTRO = CARPETA_DATOS / "registro.json"
+# Archivo con las metas.
+ARCHIVO_METAS = CARPETA_DATOS / "metas.json"
+# Archivo con las notas del asistente.
+ARCHIVO_MEMORIA = CARPETA_DATOS / "memoria.json"
+# Archivo con las claves del asistente (está en datos/, que nunca se sube a internet).
+ARCHIVO_CLAVES = CARPETA_DATOS / "claves.json"
 
 # Días de la semana en el mismo orden que usa Python (lunes = 0 ... domingo = 6).
 DIAS_SEMANA = ["lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo"]
@@ -37,6 +49,8 @@ PRIORIDAD_MAXIMA = 5
 MINUTOS_EN_UNA_SEMANA = 7 * 24 * 60
 # Cómo se crea un plan nuevo; aparece en los mensajes de error. La ventana lo cambia por el nombre de su botón.
 COMO_GENERAR = "python planificador.py generar"
+# Inteligencias artificiales que puede usar el asistente.
+PROVEEDORES = ("claude", "gemini")
 
 # Ajustes que se usan si config.json no existe o le falta alguna clave.
 CONFIG_POR_DEFECTO = {
@@ -65,6 +79,14 @@ CONFIG_POR_DEFECTO = {
     "aviso_minutos_antes": 5,
     # Calendario de Google donde se crean las sesiones ("primary" = el principal).
     "id_calendario": "primary",
+    # Si no hiciste una sesión, el plan siguiente añade ese tiempo para recuperarlo.
+    "recuperar_no_hechas": True,
+    # Inteligencia artificial del asistente: "claude" o "gemini".
+    "asistente": "claude",
+    # Modelo de Claude que usa el asistente.
+    "modelo_claude": "claude-opus-5-5",
+    # Modelo de Gemini que usa el asistente.
+    "modelo_gemini": "gemini-3.8-flash",
 }
 
 
@@ -221,10 +243,21 @@ def validar_config(leida):
         horario[nombre] = str(hora)
     # Reemplazamos el horario original por el normalizado.
     config["horario"] = horario
-    # El calendario tiene que ser un texto no vacío ("primary" o un ID de Google).
-    if not isinstance(config["id_calendario"], str) or not config["id_calendario"].strip():
+    # El calendario y los modelos tienen que ser textos no vacíos.
+    for clave, ejemplo in (("id_calendario", "primary"), ("modelo_claude", "claude-opus-5-5"),
+                           ("modelo_gemini", "gemini-3.8-flash")):
+        # Comprobamos que sea un texto con algo escrito.
+        if not isinstance(config[clave], str) or not config[clave].strip():
+            # Si no, avisamos con un ejemplo.
+            raise ErrorPlanificador(f'En config.json, "{clave}" debe ser un texto, por ejemplo "{ejemplo}".')
+    # Recuperar lo no hecho: sí (true) o no (false).
+    if not isinstance(config["recuperar_no_hechas"], bool):
         # Si no, avisamos.
-        raise ErrorPlanificador('En config.json, "id_calendario" debe ser un texto, por ejemplo "primary".')
+        raise ErrorPlanificador('En config.json, "recuperar_no_hechas" debe ser true (sí) o false (no).')
+    # El asistente tiene que ser uno de los que conocemos.
+    if config["asistente"] not in PROVEEDORES:
+        # Si no, avisamos con las opciones.
+        raise ErrorPlanificador(f'En config.json, "asistente" debe ser "claude" o "gemini" (ahora vale {config["asistente"]!r}).')
     # Devolvemos la configuración lista para usar.
     return config
 
@@ -354,3 +387,95 @@ def guardar_plan(datos_plan, ruta=None):
     """Guarda el plan (ya convertido a diccionario) en disco."""
     # Escribimos el plan en datos/plan.json (o en la ruta indicada).
     escribir_json(ruta or ARCHIVO_PLAN, datos_plan)
+
+
+def _cargar_lista(ruta, nombre):
+    """Lee un archivo que debe contener una lista (vacía si todavía no existe)."""
+    # Leemos el archivo; si no existe, empezamos con una lista vacía.
+    datos = leer_json(ruta, [])
+    # Debe ser una lista; si alguien lo editó mal, avisamos.
+    if not isinstance(datos, list):
+        # Mensaje para el usuario.
+        raise ErrorPlanificador(f"datos/{nombre} debe contener una lista [ ]. Corrígelo o bórralo.")
+    # Devolvemos la lista.
+    return datos
+
+
+def cargar_registro(ruta=None):
+    """Devuelve el registro de sesiones hechas y no hechas."""
+    # Leemos el archivo; si no existe, empezamos vacío.
+    registro = leer_json(ruta or ARCHIVO_REGISTRO, {"sesiones": {}, "perdonado": {}})
+    # Debe ser un objeto con las dos partes.
+    if not isinstance(registro, dict) or not isinstance(registro.get("sesiones", {}), dict):
+        # Mensaje para el usuario.
+        raise ErrorPlanificador("datos/registro.json está mal escrito. Corrígelo o bórralo (perderás lo marcado).")
+    # Completamos lo que falte.
+    registro.setdefault("sesiones", {})
+    # Temas cuyos pendientes se olvidaron, con la fecha en que se olvidaron.
+    registro.setdefault("perdonado", {})
+    # Devolvemos el registro.
+    return registro
+
+
+def guardar_registro(registro, ruta=None):
+    """Guarda el registro de sesiones."""
+    # Escribimos el archivo.
+    escribir_json(ruta or ARCHIVO_REGISTRO, registro)
+
+
+def cargar_metas(ruta=None):
+    """Devuelve la lista de metas."""
+    # Lista de metas.
+    return _cargar_lista(ruta or ARCHIVO_METAS, "metas.json")
+
+
+def guardar_metas(metas, ruta=None):
+    """Guarda la lista de metas."""
+    # Escribimos el archivo.
+    escribir_json(ruta or ARCHIVO_METAS, metas)
+
+
+def cargar_memoria(ruta=None):
+    """Devuelve las notas que guardó el asistente."""
+    # Lista de notas.
+    return _cargar_lista(ruta or ARCHIVO_MEMORIA, "memoria.json")
+
+
+def guardar_memoria(notas, ruta=None):
+    """Guarda las notas del asistente."""
+    # Escribimos el archivo.
+    escribir_json(ruta or ARCHIVO_MEMORIA, notas)
+
+
+def cargar_claves(ruta=None):
+    """Devuelve las claves del asistente, por ejemplo {"gemini": "AIza..."}."""
+    # Leemos el archivo; si no existe, no hay claves.
+    claves = leer_json(ruta or ARCHIVO_CLAVES, {})
+    # Debe ser un objeto.
+    if not isinstance(claves, dict):
+        # Mensaje para el usuario.
+        raise ErrorPlanificador("datos/claves.json está mal escrito. Bórralo y vuelve a poner tu clave.")
+    # Devolvemos las claves.
+    return claves
+
+
+def guardar_clave(proveedor, clave, ruta=None):
+    """Guarda (o borra, si `clave` está vacía) la clave de un proveedor del asistente."""
+    # Solo conocemos dos proveedores.
+    if proveedor not in PROVEEDORES:
+        # Mensaje para el usuario.
+        raise ErrorPlanificador(f'El asistente puede ser "claude" o "gemini", no "{proveedor}".')
+    # Claves actuales.
+    claves = cargar_claves(ruta)
+    # Quitamos espacios que se cuelan al copiar y pegar.
+    clave = (clave or "").strip()
+    # Si hay clave, la guardamos.
+    if clave:
+        # Guardamos.
+        claves[proveedor] = clave
+    # Si no, la borramos.
+    else:
+        # Borramos (si estaba).
+        claves.pop(proveedor, None)
+    # Escribimos el archivo.
+    escribir_json(ruta or ARCHIVO_CLAVES, claves)

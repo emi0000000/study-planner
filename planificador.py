@@ -7,10 +7,14 @@ Uso básico (más detalles en el README):
   python planificador.py generar
   python planificador.py hoy
   python planificador.py subir
+  python planificador.py marcar hecha "Matemáticas"
+  python planificador.py asistente
 """
 
 # argparse lee los comandos y opciones que escribes en la terminal.
 import argparse
+# getpass pide la clave del asistente sin que se vea al escribirla.
+import getpass
 # json se usa para mostrar la configuración de forma ordenada.
 import json
 # sys da acceso a la salida de errores y al código de salida del programa.
@@ -20,8 +24,12 @@ from datetime import date, datetime, timedelta
 
 # Módulo que guarda y lee los datos (temas, configuración, plan).
 import almacen
+# Asistente con inteligencia artificial (Claude o Gemini).
+import asistente
 # Módulo que habla con Google Calendar.
 import calendario_google
+# Lo hecho, las metas y el plan adaptado.
+import progreso
 # Módulo que reparte el tiempo en sesiones.
 import repartidor
 
@@ -130,12 +138,25 @@ def fechas_a_limpiar(desde=None, hasta=None):
     return desde, hasta
 
 
-def mostrar_sesiones(sesiones):
-    """Imprime una lista de sesiones con su horario y el total de minutos."""
+def mostrar_sesiones(sesiones, registro=None):
+    """Imprime una lista de sesiones con su horario y el total de minutos (y si se hicieron, si hay registro)."""
     # Una línea por sesión.
     for sesion in sesiones:
-        # Por ejemplo: "  18:00-18:25  Matemáticas (1/5)".
-        print(f"  {sesion.inicio:%H:%M}-{sesion.fin:%H:%M}  {sesion.tema} ({sesion.numero}/{sesion.total})")
+        # Detalles al final: recuperación y estado.
+        detalles = []
+        # Si es una recuperación, lo decimos.
+        if sesion.recuperacion:
+            # Detalle.
+            detalles.append("recuperación")
+        # Estado (hecha / no hecha), si se conoce.
+        estado = progreso.estado_de(registro, sesion) if registro else None
+        # Si está marcada, lo decimos.
+        if estado:
+            # Detalle.
+            detalles.append(progreso.NOMBRES_ESTADO[estado])
+        # Por ejemplo: "  18:00-18:25  Matemáticas (1/5)  [hecha]".
+        print(f"  {sesion.inicio:%H:%M}-{sesion.fin:%H:%M}  {sesion.tema} ({sesion.numero}/{sesion.total})"
+              f"{'  [' + ', '.join(detalles) + ']' if detalles else ''}")
     # Suma de minutos de estudio (sin descansos).
     total = sum(s.minutos for s in sesiones)
     # Mostramos el total.
@@ -146,6 +167,16 @@ def mostrar_plan(plan):
     """Imprime el plan de la semana, un resumen por tema y lo que no entró."""
     # Encabezado con las fechas.
     print(f"Plan de estudio del {plan['desde']:%d/%m/%Y} al {plan['hasta']:%d/%m/%Y}\n")
+    # Si el plan se adaptó (recuperaciones, metas), lo explicamos.
+    if plan.get("notas"):
+        # Título.
+        print("Cómo se adaptó este plan:")
+        # Una línea por nota.
+        for nota in plan["notas"]:
+            # Nota.
+            print(f"  - {nota}")
+        # Línea en blanco.
+        print()
     # Recorremos los 7 días del plan.
     for desplazamiento in range(7):
         # Fecha de ese día.
@@ -233,23 +264,9 @@ def comando_quitar(args):
 
 
 def comando_generar(args):
-    """Genera el plan de 7 días, lo guarda y lo muestra."""
-    # Leemos la configuración.
-    config = almacen.cargar_config()
-    # Leemos los temas.
-    temas = almacen.cargar_temas()
-    # Sin temas no hay nada que planificar.
-    if not temas:
-        # Explicamos cómo agregar uno.
-        raise almacen.ErrorPlanificador(
-            'No hay temas. Agrega uno, por ejemplo:\n  python planificador.py agregar "Matemáticas" --prioridad 5 --minutos 120'
-        )
-    # Fecha de inicio: la que indicó el usuario o la automática (hoy o mañana).
-    desde = args.desde or repartidor.primer_dia_por_defecto(config["horario"], datetime.now())
-    # Creamos el plan.
-    plan = repartidor.generar_plan(temas, config, desde)
-    # Lo guardamos en datos/plan.json.
-    almacen.guardar_plan(repartidor.plan_a_dict(plan))
+    """Genera el plan de 7 días (adaptado a lo hecho y a tus metas), lo guarda y lo muestra."""
+    # Creamos y guardamos el plan; la fecha de inicio es la indicada o la automática (hoy o mañana).
+    plan = progreso.generar_y_guardar(args.desde)
     # Lo mostramos.
     mostrar_plan(plan)
     # Siguiente paso sugerido.
@@ -280,8 +297,197 @@ def comando_hoy(args):
         print("  Día libre: no hay sesiones.")
         # Terminamos.
         return
-    # Mostramos las sesiones.
-    mostrar_sesiones(del_dia)
+    # Mostramos las sesiones, con lo ya marcado.
+    mostrar_sesiones(del_dia, almacen.cargar_registro())
+    # Recordatorio de cómo marcarlas.
+    print(f'\nCuando termines una:  python planificador.py marcar hecha "{del_dia[0].tema}"   (o "no" si no pudiste)')
+
+
+def comando_marcar(args):
+    """Marca una sesión del plan como hecha o no hecha (o le quita la marca)."""
+    # Registro de lo hecho.
+    registro = almacen.cargar_registro()
+    # Plan guardado.
+    plan = repartidor.plan_desde_dict(almacen.cargar_plan())
+    # Estado pedido.
+    estado = {"hecha": "hecha", "no": "no_hecha", "quitar": None}[args.estado]
+    # Marcamos la sesión de ese tema ese día (hoy, si no se indica).
+    sesion = progreso.marcar_por_tema(registro, plan, args.fecha or date.today(), args.tema, estado, args.hora)
+    # Guardamos.
+    almacen.guardar_registro(registro)
+    # Confirmamos.
+    print(f"{sesion.tema}, {nombre_dia(sesion.inicio.date())} a las {sesion.inicio:%H:%M}: "
+          f"{progreso.NOMBRES_ESTADO[estado]}.")
+    # Si no la hizo y se recupera, lo explicamos.
+    if estado == "no_hecha" and almacen.cargar_config()["recuperar_no_hechas"]:
+        # Explicación.
+        print("Ese tiempo se añadirá al próximo plan para recuperarlo (al ejecutar «generar»).")
+
+
+def comando_progreso(args):
+    """Muestra el progreso de los últimos 14 días (y permite olvidar lo pendiente de un tema)."""
+    # Registro de lo hecho.
+    registro = almacen.cargar_registro()
+    # Temas.
+    temas = almacen.cargar_temas()
+    # Si se pidió olvidar lo pendiente de un tema, lo hacemos primero.
+    if args.olvidar:
+        # El tema tiene que existir.
+        tema = almacen.buscar_tema(temas, args.olvidar)
+        # Si no existe, avisamos.
+        if tema is None:
+            # Error para el usuario.
+            raise almacen.ErrorPlanificador(f"No hay ningún tema llamado «{args.olvidar}».")
+        # Olvidamos.
+        progreso.olvidar_pendiente(registro, tema["nombre"])
+        # Guardamos.
+        almacen.guardar_registro(registro)
+        # Confirmamos.
+        print(f"Listo: ya no se recupera lo pendiente de «{tema['nombre']}».\n")
+    # Resumen de los últimos 14 días.
+    datos = progreso.resumen(registro, progreso.plan_guardado(), temas, datetime.now())
+    # Título.
+    print(f"Progreso de los últimos {progreso.DIAS_RECUENTO} días\n")
+    # Encabezado de la tabla.
+    print(f"{'Tema':<24} {'Hechas':>6} {'No':>4} {'Sin marcar':>10} {'Cumplido':>9}  Pendiente")
+    # Una fila por tema.
+    for fila in datos["temas"]:
+        # Porcentaje (o guion si no hay nada marcado).
+        cumplido = f"{fila['cumplimiento']} %" if fila["cumplimiento"] is not None else "-"
+        # Lo pendiente de recuperar.
+        pendiente = progreso.minutos_a_texto(fila["pendiente"]) if fila["pendiente"] else "-"
+        # Fila.
+        print(f"{fila['tema'][:24]:<24} {fila['hechas']:>6} {fila['no_hechas']:>4} {fila['sin_marcar']:>10} "
+              f"{cumplido:>9}  {pendiente}")
+    # Racha.
+    print(f"\nRacha: {datos['racha']} días seguidos estudiando.")
+    # Si hay algo pendiente, explicamos qué pasará.
+    if any(fila["pendiente"] for fila in datos["temas"]):
+        # Explicación.
+        print("Lo pendiente se añade al próximo plan. Para no recuperarlo:  python planificador.py progreso --olvidar TEMA")
+
+
+def comando_meta(args):
+    """Agrega una meta."""
+    # Metas guardadas.
+    metas = almacen.cargar_metas()
+    # Nueva meta.
+    meta = progreso.agregar_meta(metas, args.texto, args.tema, args.fecha.isoformat() if args.fecha else None,
+                                 almacen.cargar_temas())
+    # Guardamos.
+    almacen.guardar_metas(metas)
+    # Confirmamos.
+    print(f"Meta {meta['id']} guardada: {progreso.texto_meta(meta)}.")
+    # Si tiene tema y fecha, explicamos el efecto.
+    if meta["tema"] and meta["fecha"]:
+        # Explicación.
+        print("El plan dará más prioridad a ese tema antes de la fecha. Vuelve a ejecutar «generar» para verlo.")
+
+
+def comando_metas(args):
+    """Muestra las metas."""
+    # Metas guardadas.
+    metas = almacen.cargar_metas()
+    # Sin metas, explicamos cómo agregar una.
+    if not metas:
+        # Mensaje con ejemplo.
+        print('No hay metas. Agrega una con:\n  python planificador.py meta "Examen de Química" --tema Química --fecha 2026-11-13')
+        # Terminamos.
+        return
+    # Una línea por meta, primero las pendientes.
+    for meta in sorted(metas, key=lambda m: (bool(m.get("cumplida")), m.get("fecha") or "9999")):
+        # Número y descripción.
+        print(f"  {meta['id']:>3}. {progreso.texto_meta(meta)}")
+
+
+def comando_meta_cumplida(args):
+    """Marca una meta como cumplida (o pendiente, con --deshacer)."""
+    # Metas guardadas.
+    metas = almacen.cargar_metas()
+    # Cambiamos su estado.
+    meta = progreso.cumplir_meta(metas, args.numero, not args.deshacer)
+    # Guardamos.
+    almacen.guardar_metas(metas)
+    # Confirmamos.
+    print(f"Meta «{meta['texto']}»: {'cumplida. ¡Bien hecho!' if meta['cumplida'] else 'pendiente otra vez.'}")
+
+
+def comando_quitar_meta(args):
+    """Quita una meta."""
+    # Metas guardadas.
+    metas = almacen.cargar_metas()
+    # La quitamos.
+    meta = progreso.quitar_meta(metas, args.numero)
+    # Guardamos.
+    almacen.guardar_metas(metas)
+    # Confirmamos.
+    print(f"Meta quitada: «{meta['texto']}».")
+
+
+def comando_clave(args):
+    """Guarda (o borra) la clave del asistente y lo deja elegido."""
+    # Borrar la clave.
+    if args.borrar:
+        # Borramos.
+        almacen.guardar_clave(args.proveedor, "")
+        # Confirmamos.
+        print(f"Clave de {asistente.NOMBRES[args.proveedor]} borrada.")
+        # Terminamos.
+        return
+    # Pedimos la clave sin que se vea al escribirla (así no queda en el historial de la terminal).
+    clave = getpass.getpass(f"Pega tu clave de {asistente.NOMBRES[args.proveedor]} y pulsa Enter (no se verá): ")
+    # Tiene que tener algo.
+    if not clave.strip():
+        # Error para el usuario.
+        raise almacen.ErrorPlanificador("No escribiste ninguna clave.")
+    # La guardamos en datos/claves.json.
+    almacen.guardar_clave(args.proveedor, clave)
+    # Elegimos este proveedor para el asistente.
+    almacen.guardar_config({**almacen.cargar_config(), "asistente": args.proveedor})
+    # Confirmamos.
+    print(f"Clave guardada. El asistente usará {asistente.NOMBRES[args.proveedor]}. Pruébalo con:  python planificador.py asistente")
+
+
+def comando_asistente(args):
+    """Conversación con el asistente en la terminal."""
+    # Empezamos la conversación (falla con un mensaje claro si falta la clave o la librería).
+    conversacion = asistente.crear_conversacion()
+    # Bienvenida.
+    print(f"Asistente de estudio con {conversacion.nombre}. Escribe «salir» para terminar.")
+    # Ejemplos.
+    print("Por ejemplo: «¿cómo voy esta semana?», «hoy no pude estudiar química», «el 13/11 tengo examen de inglés».")
+    # Hasta que el usuario salga.
+    while True:
+        # Leemos lo que escribe (Ctrl+D o Ctrl+Z también salen).
+        try:
+            # Texto del usuario.
+            texto = input("\nTú: ").strip()
+        # Fin de la entrada.
+        except EOFError:
+            # Salimos.
+            print()
+            # Terminamos.
+            return
+        # Salir.
+        if texto.lower() in ("salir", "adios", "adiós", "exit", "quit"):
+            # Terminamos.
+            return
+        # Línea vacía: volvemos a preguntar.
+        if not texto:
+            # Siguiente.
+            continue
+        # Respuesta del asistente (mostrando lo que va haciendo).
+        try:
+            # Respuesta.
+            respuesta = conversacion.enviar(texto, avisar=lambda linea: print(f"   · {linea}"))
+        # Si algo falla (por ejemplo, sin internet), lo decimos y seguimos.
+        except almacen.ErrorPlanificador as error:
+            # Mensaje.
+            print(f"Error: {error}", file=sys.stderr)
+            # Siguiente mensaje.
+            continue
+        # Mostramos la respuesta.
+        print(f"\nAsistente: {respuesta}")
 
 
 def comando_subir(args):
@@ -464,6 +670,65 @@ def crear_parser():
     # --- config ---
     # Comando para ver la configuración.
     nuevo_comando(sub, "config", "muestra la configuración actual (config.json)", comando_config)
+
+    # --- marcar ---
+    # Comando para marcar una sesión.
+    p = nuevo_comando(sub, "marcar", "marca una sesión como hecha o no hecha (el plan se adapta a eso)", comando_marcar)
+    # Hecha, no hecha o quitar la marca.
+    p.add_argument("estado", choices=["hecha", "no", "quitar"], help="hecha, no (no la hiciste) o quitar (sin marca)")
+    # Tema de la sesión.
+    p.add_argument("tema", help="tema de la sesión (no importan mayúsculas ni tildes)")
+    # Día (por defecto hoy).
+    p.add_argument("--fecha", type=leer_fecha, metavar="AAAA-MM-DD", help="día de la sesión (por defecto hoy)")
+    # Hora, si ese día hay varias del mismo tema.
+    p.add_argument("--hora", metavar="HH:MM", help="hora de inicio, si ese día hay varias del mismo tema")
+
+    # --- progreso ---
+    # Comando para ver el progreso.
+    p = nuevo_comando(sub, "progreso", "muestra lo hecho en los últimos 14 días y lo pendiente de recuperar",
+                      comando_progreso)
+    # Olvidar lo pendiente de un tema.
+    p.add_argument("--olvidar", metavar="TEMA", help="deja de recuperar lo pendiente de ese tema")
+
+    # --- meta ---
+    # Comando para agregar una meta.
+    p = nuevo_comando(sub, "meta", "agrega una meta (por ejemplo, un examen con fecha)", comando_meta)
+    # Texto de la meta.
+    p.add_argument("texto", help='la meta, entre comillas: "Examen de Química"')
+    # Tema relacionado.
+    p.add_argument("--tema", help="tema relacionado (así el plan le da prioridad antes de la fecha)")
+    # Fecha límite.
+    p.add_argument("--fecha", type=leer_fecha, metavar="AAAA-MM-DD", help="fecha de la meta")
+
+    # --- metas ---
+    # Comando para ver las metas.
+    nuevo_comando(sub, "metas", "muestra tus metas con su número", comando_metas)
+
+    # --- meta-cumplida ---
+    # Comando para marcar una meta como cumplida.
+    p = nuevo_comando(sub, "meta-cumplida", "marca una meta como cumplida", comando_meta_cumplida)
+    # Número de la meta.
+    p.add_argument("numero", type=int, help="número de la meta (míralo con «metas»)")
+    # Deshacer.
+    p.add_argument("--deshacer", action="store_true", help="la vuelve a dejar pendiente")
+
+    # --- quitar-meta ---
+    # Comando para quitar una meta.
+    p = nuevo_comando(sub, "quitar-meta", "quita una meta", comando_quitar_meta)
+    # Número de la meta.
+    p.add_argument("numero", type=int, help="número de la meta (míralo con «metas»)")
+
+    # --- clave ---
+    # Comando para guardar la clave del asistente.
+    p = nuevo_comando(sub, "clave", "guarda tu clave de Claude o Gemini para el asistente", comando_clave)
+    # Proveedor.
+    p.add_argument("proveedor", choices=["claude", "gemini"], help="claude o gemini")
+    # Borrar.
+    p.add_argument("--borrar", action="store_true", help="borra la clave guardada")
+
+    # --- asistente ---
+    # Comando para hablar con el asistente.
+    nuevo_comando(sub, "asistente", "habla con el asistente de estudio (Claude o Gemini)", comando_asistente)
 
     # Devolvemos el parser listo.
     return parser

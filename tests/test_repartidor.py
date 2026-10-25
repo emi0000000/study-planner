@@ -161,6 +161,31 @@ class GenerarPlan(unittest.TestCase):
         # Debe quedar idéntico.
         self.assertEqual(recuperado, plan)
 
+    def test_recuperacion_solo_ocupa_el_sitio_que_sobra(self):
+        # Solo lunes, con 75 minutos como máximo.
+        config = config_base(horario={"lunes": "18:00"}, maximo_minutos_por_dia=75)
+        # Un tema de 50 min y 50 min para recuperar: solo cabe una recuperación de 25.
+        plan = repartidor.generar_plan([tema("A", 3, 50)], config, LUNES, recuperar={"A": 50})
+        # Dos sesiones normales y una de recuperación (al final).
+        self.assertEqual([s.recuperacion for s in plan["sesiones"]], [False, False, True])
+        # Lo que no cupo no cuenta como "sin lugar"...
+        self.assertEqual(plan["sin_lugar"], [])
+        # ...pero se explica en las notas.
+        self.assertTrue(any("No cupieron 25 min" in nota for nota in plan["notas"]))
+
+    def test_fecha_limite_prefiere_los_dias_anteriores(self):
+        # Un tema con 2 sesiones y fecha límite el miércoles.
+        plan = repartidor.generar_plan([tema("A", 3, 50)], config_base(), LUNES,
+                                       limites={"A": LUNES + timedelta(days=2)})
+        # Las dos van lunes y martes.
+        self.assertEqual([s.inicio.date() for s in plan["sesiones"]], [LUNES, LUNES + timedelta(days=1)])
+
+    def test_plan_con_recuperacion_y_notas_se_guarda_igual(self):
+        # Plan con recuperación y una nota.
+        plan = repartidor.generar_plan([tema("A", 3, 50)], config_base(), LUNES, recuperar={"A": 25}, notas=["Hola"])
+        # Ida y vuelta.
+        self.assertEqual(repartidor.plan_desde_dict(repartidor.plan_a_dict(plan)), plan)
+
     def test_plan_danado_da_error_claro(self):
         # Le falta la fecha de inicio.
         with self.assertRaisesRegex(almacen.ErrorPlanificador, "dañado"):

@@ -13,11 +13,11 @@ import unittest
 # redirect_stdout desvía lo que se imprime hacia nuestro StringIO.
 from contextlib import redirect_stdout
 # Herramientas de fechas.
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 # Path para manejar rutas.
 from pathlib import Path
 # patch cambia temporalmente un valor durante la prueba.
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 # Añadimos la carpeta de la app para poder importar sus módulos.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -36,7 +36,7 @@ class Comandos(unittest.TestCase):
         self.carpeta = tempfile.TemporaryDirectory()
         # Ruta de la carpeta como Path.
         base = Path(self.carpeta.name)
-        # Redirigimos los tres archivos de la app a la carpeta temporal.
+        # Redirigimos todos los archivos de la app a la carpeta temporal.
         self.parches = [
             # Configuración.
             patch.object(almacen, "ARCHIVO_CONFIG", base / "config.json"),
@@ -44,6 +44,14 @@ class Comandos(unittest.TestCase):
             patch.object(almacen, "ARCHIVO_TEMAS", base / "datos" / "temas.json"),
             # Plan.
             patch.object(almacen, "ARCHIVO_PLAN", base / "datos" / "plan.json"),
+            # Sesiones hechas y no hechas.
+            patch.object(almacen, "ARCHIVO_REGISTRO", base / "datos" / "registro.json"),
+            # Metas.
+            patch.object(almacen, "ARCHIVO_METAS", base / "datos" / "metas.json"),
+            # Notas del asistente.
+            patch.object(almacen, "ARCHIVO_MEMORIA", base / "datos" / "memoria.json"),
+            # Claves del asistente.
+            patch.object(almacen, "ARCHIVO_CLAVES", base / "datos" / "claves.json"),
         ]
         # Activamos los parches.
         for parche in self.parches:
@@ -131,6 +139,110 @@ class Comandos(unittest.TestCase):
             self.assertEqual(codigo, 1, argumentos)
             # Mensaje útil.
             self.assertIn(mensaje, errores.getvalue())
+
+
+class ComandosDeProgreso(Comandos):
+    """Marcar sesiones, metas, progreso, clave y asistente desde la terminal."""
+
+    def preparar(self):
+        """Dos temas y un plan desde el próximo lunes; devuelve ese lunes."""
+        # Próximo lunes.
+        lunes = date.today() + timedelta(days=7 - date.today().weekday())
+        # Temas.
+        self.ejecutar("agregar", "Matemáticas", "-p", "5", "-m", "100")
+        # Segundo tema.
+        self.ejecutar("agregar", "Química", "-p", "2", "-m", "100")
+        # Plan.
+        self.ejecutar("generar", "--desde", lunes.isoformat())
+        # Lo devolvemos.
+        return lunes
+
+    def test_marcar_y_ver_en_hoy(self):
+        # Plan.
+        lunes = self.preparar()
+        # Marcamos como no hecha la de Química del lunes (sin tilde).
+        codigo, texto = self.ejecutar("marcar", "no", "quimica", "--fecha", lunes.isoformat())
+        # Sin error, y explica que se recuperará.
+        self.assertEqual(codigo, 0)
+        # Mensaje.
+        self.assertIn("recuperarlo", texto)
+        # "hoy" de ese lunes la muestra marcada.
+        self.assertIn("Química (1/4)  [no hecha]", self.ejecutar("hoy", "--fecha", lunes.isoformat())[1])
+        # Marcar un tema sin sesiones ese día da error.
+        with redirect_stdout(io.StringIO()), patch("sys.stderr", io.StringIO()) as errores:
+            # Intento.
+            codigo = planificador.main(["marcar", "hecha", "Historia", "--fecha", lunes.isoformat()])
+        # Código de error y mensaje.
+        self.assertEqual((codigo, "Historia" in errores.getvalue()), (1, True))
+
+    def test_metas_y_plan_adaptado(self):
+        # Plan.
+        lunes = self.preparar()
+        # Meta con examen de Química el jueves.
+        codigo, texto = self.ejecutar("meta", "Examen de Química", "--tema", "Química", "--fecha",
+                                      (lunes + timedelta(days=3)).isoformat())
+        # Guardada con número 1.
+        self.assertIn("Meta 1 guardada", texto)
+        # Aparece en la lista.
+        self.assertIn("1. Examen de Química (Química)", self.ejecutar("metas")[1])
+        # Al generar, el plan explica cómo se adaptó.
+        texto = self.ejecutar("generar", "--desde", lunes.isoformat())[1]
+        # Nota de la meta.
+        self.assertIn("Cómo se adaptó este plan", texto)
+        # La cumplimos.
+        self.assertIn("cumplida", self.ejecutar("meta-cumplida", "1")[1])
+        # La quitamos.
+        self.ejecutar("quitar-meta", "1")
+        # Ya no hay metas.
+        self.assertIn("No hay metas", self.ejecutar("metas")[1])
+
+    def test_progreso_y_olvidar(self):
+        # Plan.
+        lunes = self.preparar()
+        # Marcamos como no hecha la de Matemáticas del lunes.
+        self.ejecutar("marcar", "no", "Matemáticas", "--fecha", lunes.isoformat())
+        # El progreso se calcula hasta hoy: miramos desde ese lunes por la noche.
+        with patch.object(planificador, "datetime", Mock(now=Mock(return_value=datetime.combine(lunes, time(23, 0))))):
+            # Progreso.
+            codigo, texto = self.ejecutar("progreso")
+        # Sin error, con lo pendiente.
+        self.assertEqual(codigo, 0)
+        # Matemáticas tiene 25 min pendientes.
+        self.assertRegex(texto, r"Matemáticas .* 25 min")
+        # Olvidar lo pendiente de un tema que no existe da error.
+        with redirect_stdout(io.StringIO()), patch("sys.stderr", io.StringIO()):
+            # Intento.
+            self.assertEqual(planificador.main(["progreso", "--olvidar", "Física"]), 1)
+        # Olvidar el de Matemáticas funciona.
+        self.assertIn("ya no se recupera", self.ejecutar("progreso", "--olvidar", "matematicas")[1])
+
+    def test_clave_y_asistente(self):
+        # Guardamos una clave de Gemini (getpass de mentira).
+        with patch.object(planificador.getpass, "getpass", return_value=" mi-clave "):
+            # Comando.
+            codigo, texto = self.ejecutar("clave", "gemini")
+        # Guardada y elegida.
+        self.assertEqual((codigo, almacen.cargar_claves()["gemini"], almacen.cargar_config()["asistente"]),
+                         (0, "mi-clave", "gemini"))
+        # Conversación de mentira que repite lo que recibe.
+        conversacion = Mock(nombre="Gemini (prueba)")
+        # Respuesta: avisa de una acción y responde.
+        conversacion.enviar.side_effect = lambda texto, avisar: (avisar("Algo hecho"), f"Recibí: {texto}")[1]
+        # El usuario escribe un mensaje y luego «salir».
+        with patch.object(planificador.asistente, "crear_conversacion", return_value=conversacion), \
+                patch("builtins.input", side_effect=["hola", "salir"]):
+            # Comando.
+            codigo, texto = self.ejecutar("asistente")
+        # Sin error, con la respuesta y el aviso.
+        self.assertEqual(codigo, 0)
+        # Respuesta.
+        self.assertIn("Asistente: Recibí: hola", texto)
+        # Aviso.
+        self.assertIn("· Algo hecho", texto)
+        # Borramos la clave.
+        self.ejecutar("clave", "gemini", "--borrar")
+        # Ya no está.
+        self.assertNotIn("gemini", almacen.cargar_claves())
 
 
 class FuncionesCompartidas(unittest.TestCase):
