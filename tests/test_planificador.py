@@ -108,6 +108,27 @@ class Comandos(unittest.TestCase):
         # Mensaje útil.
         self.assertIn("No hay temas", errores.getvalue())
 
+    def test_limpiar_revisa_las_fechas_antes_de_conectar(self):
+        # Casos que deben fallar sin llegar a conectar con Google.
+        casos = [
+            # --hasta sin --desde.
+            (["limpiar", "--hasta", "2026-11-01"], "indica también --desde"),
+            # --hasta antes que --desde.
+            (["limpiar", "--desde", "2026-11-05", "--hasta", "2026-11-01"], "es anterior"),
+        ]
+        # Probamos cada caso.
+        for argumentos, mensaje in casos:
+            # Si llegara a conectar, la prueba fallaría con este parche.
+            with patch.object(planificador.calendario_google, "conectar", side_effect=AssertionError("no debe conectar")):
+                # Capturamos la salida de errores.
+                with redirect_stdout(io.StringIO()), patch("sys.stderr", io.StringIO()) as errores:
+                    # Ejecutamos.
+                    codigo = planificador.main(argumentos)
+            # Código de error.
+            self.assertEqual(codigo, 1, argumentos)
+            # Mensaje útil.
+            self.assertIn(mensaje, errores.getvalue())
+
 
 # Permite ejecutar este archivo directamente.
 if __name__ == "__main__":

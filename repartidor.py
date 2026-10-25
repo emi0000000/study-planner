@@ -5,7 +5,8 @@ Pasos que sigue generar_plan():
   2. Reparte los bloques entre los días de estudio de la semana:
        - primero los temas de mayor prioridad (si no entra todo, se quedan fuera los de menor prioridad);
        - un mismo tema va a días distintos y, si se puede, no seguidos (repasar con espacio ayuda a recordar);
-       - cada día recibe una carga parecida, sin pasar del máximo diario.
+       - cada día recibe una carga parecida, sin pasar del máximo diario;
+       - las sesiones de un día terminan como muy tarde a medianoche.
   3. Ordena las sesiones de cada día: lo prioritario primero y sin repetir el mismo tema seguido.
   4. Les pone hora de inicio y fin, con descansos entre medias.
 """
@@ -15,8 +16,8 @@ from dataclasses import dataclass
 # Herramientas de fechas: date (día), datetime (día + hora), time (hora), timedelta (duración).
 from datetime import date, datetime, time, timedelta
 
-# Usamos la lista de días y el lector de horas del módulo de datos.
-from almacen import DIAS_SEMANA, leer_hora
+# Usamos la lista de días, el lector de horas y el tipo de error del módulo de datos.
+from almacen import DIAS_SEMANA, ErrorPlanificador, leer_hora
 
 # Si un tema ya tiene sesión un día, preferimos dejar al menos 2 días de distancia
 # hasta la siguiente (lunes -> miércoles). Más distancia que eso ya no suma puntos.
@@ -130,8 +131,38 @@ def dias_del_plan(desde, horario):
     return dias
 
 
-def elegir_dia(tema, minutos, por_dia, maximo):
+def minutos_hasta_medianoche(hora_inicio):
+    """Minutos que hay desde la hora de inicio ("18:00") hasta las 00:00. Ejemplo: "22:30" -> 90."""
+    # Convertimos "22:30" en números.
+    horas, minutos = leer_hora(hora_inicio)
+    # Un día tiene 24 * 60 = 1440 minutos; le restamos los que ya pasaron a esa hora.
+    return 24 * 60 - (horas * 60 + minutos)
+
+
+def duracion_con_descansos(duraciones, config):
+    """Minutos desde que empieza la primera sesión del día hasta que acaba la última.
+
+    Suma las sesiones y los descansos que hay entre ellas, igual que poner_horarios().
+    Ejemplo con la configuración por defecto: [25, 25, 25, 25, 25] -> 125 + 5 + 5 + 5 + 15 = 155.
+    """
+    # Cada cuántas sesiones toca descanso largo.
+    cada = config["sesiones_antes_de_descanso_largo"]
+    # Descanso que va después de cada sesión, menos la última (después de la última ya no se estudia).
+    descansos = sum(
+        # Largo en las posiciones 4, 8, 12... (si está activado); corto en las demás.
+        config["descanso_largo"] if cada > 0 and posicion % cada == 0 else config["descanso_corto"]
+        # Posiciones 1, 2, ..., n-1.
+        for posicion in range(1, len(duraciones))
+    )
+    # Minutos de estudio más minutos de descanso.
+    return sum(duraciones) + descansos
+
+
+def elegir_dia(tema, minutos, por_dia, config, disponibles):
     """Elige el mejor día para una sesión de `tema`, o None si no cabe en ninguno.
+
+    Un día sirve si, con esta sesión, no pasa del máximo diario y termina antes de medianoche
+    (`disponibles` dice cuántos minutos hay en cada día desde la hora de inicio hasta las 00:00).
 
     Entre los días donde todavía cabe, prefiere (en este orden):
       1. el que tenga menos sesiones de este mismo tema;
@@ -139,6 +170,8 @@ def elegir_dia(tema, minutos, por_dia, maximo):
       3. el que tenga menos minutos ocupados;
       4. el más temprano.
     """
+    # Máximo de minutos de estudio por día (0 = sin límite).
+    maximo = config["maximo_minutos_por_dia"]
     # Días que ya tienen al menos una sesión de este tema.
     dias_con_tema = [fecha for fecha, lista in por_dia.items() if any(s.tema == tema for s in lista)]
     # Todavía no elegimos ningún día.
@@ -151,6 +184,10 @@ def elegir_dia(tema, minutos, por_dia, maximo):
         ocupados = sum(s.minutos for s in lista)
         # Si hay máximo diario (distinto de 0) y la sesión no cabe, saltamos el día.
         if maximo and ocupados + minutos > maximo:
+            # Pasamos al siguiente día.
+            continue
+        # Si con esta sesión (y sus descansos) el día terminaría después de medianoche, también lo saltamos.
+        if duracion_con_descansos([s.minutos for s in lista] + [minutos], config) > disponibles[fecha]:
             # Pasamos al siguiente día.
             continue
         # Cuántas sesiones de este tema tiene ya ese día.
@@ -233,10 +270,12 @@ def generar_plan(temas, config, desde):
     Devuelve un diccionario con:
       "desde" y "hasta": primera y última fecha del plan;
       "sesiones": lista de Sesion con hora, ordenada en el tiempo;
-      "sin_lugar": sesiones que no entraron por el máximo diario.
+      "sin_lugar": sesiones que no entraron (por el máximo diario o porque el día llegaba a medianoche).
     """
     # Días de estudio de esta semana con su hora de inicio.
     dias = dias_del_plan(desde, config["horario"])
+    # Minutos que hay en cada día desde la hora de inicio hasta medianoche.
+    disponibles = {fecha: minutos_hasta_medianoche(hora) for fecha, hora in dias.items()}
     # Para cada día, la lista de sesiones que le vamos asignando (empieza vacía).
     por_dia = {fecha: [] for fecha in dias}
     # Sesiones que no caben en ningún día.
@@ -252,7 +291,7 @@ def generar_plan(temas, config, desde):
             # Creamos la sesión (todavía sin hora).
             sesion = Sesion(tema=tema["nombre"], prioridad=tema["prioridad"], minutos=minutos)
             # Buscamos el mejor día para ella.
-            fecha = elegir_dia(sesion.tema, minutos, por_dia, config["maximo_minutos_por_dia"])
+            fecha = elegir_dia(sesion.tema, minutos, por_dia, config, disponibles)
             # Si no cabe en ningún día...
             if fecha is None:
                 # ...la apuntamos como "sin lugar".
@@ -323,15 +362,32 @@ def plan_a_dict(plan):
 
 
 def plan_desde_dict(datos):
-    """Hace lo contrario de plan_a_dict: reconstruye el plan leído del JSON."""
-    # Los textos vuelven a ser fechas y los diccionarios, sesiones.
-    return {
-        # Primera fecha.
-        "desde": date.fromisoformat(datos["desde"]),
-        # Última fecha.
-        "hasta": date.fromisoformat(datos["hasta"]),
-        # Sesiones con hora.
-        "sesiones": [Sesion.desde_dict(d) for d in datos.get("sesiones", [])],
-        # Sesiones sin lugar.
-        "sin_lugar": [Sesion.desde_dict(d) for d in datos.get("sin_lugar", [])],
-    }
+    """Hace lo contrario de plan_a_dict: reconstruye el plan leído del JSON.
+
+    Si el archivo del plan está incompleto o mal editado, lanza un error claro en vez de fallar a medias.
+    """
+    # Mensaje por si el archivo está dañado.
+    danado = "El plan guardado (datos/plan.json) está dañado. Vuelve a crearlo con:  python planificador.py generar"
+    # Intentamos reconstruir el plan.
+    try:
+        # Los textos vuelven a ser fechas y los diccionarios, sesiones.
+        plan = {
+            # Primera fecha.
+            "desde": date.fromisoformat(datos["desde"]),
+            # Última fecha.
+            "hasta": date.fromisoformat(datos["hasta"]),
+            # Sesiones con hora.
+            "sesiones": [Sesion.desde_dict(d) for d in datos.get("sesiones", [])],
+            # Sesiones sin lugar.
+            "sin_lugar": [Sesion.desde_dict(d) for d in datos.get("sin_lugar", [])],
+        }
+    # Falta un dato, hay algo de otro tipo o una fecha está mal escrita.
+    except (KeyError, TypeError, ValueError, AttributeError) as error:
+        # Pedimos generar otro plan.
+        raise ErrorPlanificador(danado) from error
+    # Toda sesión del plan tiene que tener hora de inicio y de fin.
+    if not all(s.inicio and s.fin for s in plan["sesiones"]):
+        # Pedimos generar otro plan.
+        raise ErrorPlanificador(danado)
+    # Devolvemos el plan listo para usar.
+    return plan

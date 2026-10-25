@@ -110,9 +110,11 @@ def mostrar_plan(plan):
         # Total de minutos que no entraron.
         faltan = sum(s.minutos for s in plan["sin_lugar"])
         # Aviso.
-        print(f"\nAtención: no entraron {len(plan['sin_lugar'])} sesiones ({faltan} min) por el máximo diario.")
+        print(f"\nAtención: no entraron {len(plan['sin_lugar'])} sesiones ({faltan} min): no caben en tus días de estudio")
+        # Por qué: el máximo diario o la medianoche.
+        print("(por el máximo diario, o porque el día llegaría a medianoche).")
         # Qué se puede hacer.
-        print('Para que entren: sube "maximo_minutos_por_dia" o agrega días en "horario" (config.json),')
+        print('Para que entren: sube "maximo_minutos_por_dia", agrega días o empieza más temprano en "horario" (config.json),')
         # Continuación del consejo.
         print("o baja los minutos de algún tema. Siempre se quedan fuera primero los de menor prioridad.")
 
@@ -279,12 +281,23 @@ def comando_limpiar(args):
         desde = args.desde
         # Último día: el indicado o 6 días después.
         hasta = args.hasta or desde + timedelta(days=6)
+    # --hasta solo no basta: no sabríamos desde cuándo borrar.
+    elif args.hasta:
+        # Explicamos cómo escribirlo.
+        raise almacen.ErrorPlanificador(
+            "Si usas --hasta, indica también --desde, por ejemplo:\n"
+            "  python planificador.py limpiar --desde 2026-10-26 --hasta 2026-11-01"
+        )
     # Si no, usamos las fechas del plan guardado.
     else:
         # Leemos el plan.
         plan = repartidor.plan_desde_dict(almacen.cargar_plan())
         # Fechas del plan.
         desde, hasta = plan["desde"], plan["hasta"]
+    # El último día no puede ser anterior al primero.
+    if hasta < desde:
+        # Explicamos el problema con las dos fechas.
+        raise almacen.ErrorPlanificador(f"--hasta ({hasta:%d/%m/%Y}) es anterior a --desde ({desde:%d/%m/%Y}).")
     # Conectamos con Google.
     print("Conectando con Google Calendar...")
     # Obtenemos el servicio.
@@ -307,8 +320,8 @@ def comando_config(args):
     maximo = config["maximo_minutos_por_dia"]
     # Si hay límite, mostramos cuánto cabe por semana.
     if maximo:
-        # Capacidad semanal = máximo diario × días de estudio.
-        capacidad = maximo * len(config["horario"])
+        # Cada día cabe el máximo diario, o menos si antes se llega a medianoche (sin contar descansos).
+        capacidad = sum(min(maximo, repartidor.minutos_hasta_medianoche(hora)) for hora in config["horario"].values())
         # Mensaje.
         print(f"\nCon este horario caben hasta {capacidad} min de estudio por semana.")
 

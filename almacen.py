@@ -131,12 +131,18 @@ def leer_hora(texto):
     return horas, minutos
 
 
+def _es_entero(valor):
+    """True si el valor es un número entero (en Python true/false cuentan como enteros; los descartamos)."""
+    # Entero, pero no true/false.
+    return isinstance(valor, int) and not isinstance(valor, bool)
+
+
 def _validar_entero(config, clave, minimo, maximo=None):
     """Comprueba que config[clave] sea un número entero dentro del rango permitido."""
     # Tomamos el valor que hay en la configuración.
     valor = config[clave]
-    # En Python true/false cuentan como enteros; los descartamos aparte.
-    es_entero = isinstance(valor, int) and not isinstance(valor, bool)
+    # ¿Es un número entero?
+    es_entero = _es_entero(valor)
     # Si es entero, miramos si se sale por abajo o por arriba.
     fuera_de_rango = es_entero and (valor < minimo or (maximo is not None and valor > maximo))
     # Si no es entero o se sale del rango, avisamos con el rango correcto.
@@ -215,8 +221,41 @@ def cargar_temas(ruta=None):
     if not isinstance(temas, list):
         # Mensaje para el usuario.
         raise ErrorPlanificador("datos/temas.json debe contener una lista [ ].")
+    # Revisamos cada tema por si el archivo se editó a mano.
+    for posicion, tema in enumerate(temas, start=1):
+        # Si le falta algo o tiene un valor raro, avisamos cuál es.
+        if not _tema_valido(tema):
+            # Mensaje con lo que debe tener cada tema.
+            raise ErrorPlanificador(
+                f"El tema número {posicion} de datos/temas.json está mal escrito. Cada tema necesita "
+                '"nombre", "prioridad" (1 a 5) y "minutos_semana".\n'
+                'Corrígelo con el Bloc de notas, o bórralo y vuelve a agregarlo con "agregar".'
+            )
     # Devolvemos los temas.
     return temas
+
+
+def _tema_valido(tema):
+    """True si el tema tiene nombre, prioridad de 1 a 5 y minutos por semana válidos."""
+    # Tiene que ser un objeto { ... }.
+    if not isinstance(tema, dict):
+        # No lo es.
+        return False
+    # Nombre del tema.
+    nombre = tema.get("nombre")
+    # Prioridad del tema.
+    prioridad = tema.get("prioridad")
+    # Minutos por semana.
+    minutos = tema.get("minutos_semana")
+    # Las mismas reglas que usa agregar_tema().
+    return (
+        # Un texto que no esté vacío.
+        isinstance(nombre, str) and bool(nombre.strip())
+        # Un entero de 1 a 5.
+        and _es_entero(prioridad) and PRIORIDAD_MINIMA <= prioridad <= PRIORIDAD_MAXIMA
+        # Un entero que quepa en una semana.
+        and _es_entero(minutos) and 0 < minutos <= MINUTOS_EN_UNA_SEMANA
+    )
 
 
 def guardar_temas(temas, ruta=None):

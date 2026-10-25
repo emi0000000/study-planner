@@ -5,6 +5,8 @@
 
 Reparte tu tiempo de estudio entre temas en **sesiones cortas** (por defecto de 25 minutos) y las crea en **Google Calendar**, para que el **teléfono te avise** antes de cada una. No hace falta programar nada para el móvil: basta con la app de Google Calendar.
 
+> **¿Es tu primera vez?** Sigue la [guía de inicio](GUIA_DE_INICIO.md): explica paso a paso cómo instalarlo y cómo conseguir lo que pide (Python, las librerías y el permiso de Google).
+
 Qué hace esta primera versión:
 
 - Guarda temas con su **prioridad** (1 a 5) y los **minutos por semana** que quieres dedicarles.
@@ -104,6 +106,8 @@ Todos se escriben después de `python planificador.py`. Para ver la ayuda de un 
 
 ## 5. Conectar con Google Calendar (solo una vez)
 
+> Estos mismos pasos, más detallados y con una lista de comprobación, están en la [guía de inicio](GUIA_DE_INICIO.md).
+
 La API de Google Calendar es gratuita y no pide tarjeta. Necesitas crear un "proyecto" en Google Cloud y descargar un archivo de permisos llamado `credentials.json`. Se hace una sola vez y lleva unos 10 minutos.
 
 ### 5.1 Crear el proyecto y activar la API
@@ -165,7 +169,7 @@ Puedes cambiar estos valores con el Bloc de notas. Respeta las comillas y las co
 | `descanso_largo` | `15` | Minutos del descanso largo. |
 | `sesiones_antes_de_descanso_largo` | `4` | Cada cuántas sesiones toca el descanso largo (`0` = nunca). |
 | `maximo_minutos_por_dia` | `120` | Máximo de estudio por día, sin contar descansos (`0` = sin límite). |
-| `horario` | lunes a viernes `18:00`, sábado `10:00` | Días en que estudias y a qué hora empiezas cada uno. Quita un día para no estudiar ese día. Ejemplo: `{"lunes": "17:30", "domingo": "11:00"}`. |
+| `horario` | lunes a viernes `18:00`, sábado `10:00` | Días en que estudias y a qué hora empiezas cada uno. Quita un día para no estudiar ese día. Ejemplo: `{"lunes": "17:30", "domingo": "11:00"}`. Las sesiones de un día terminan como muy tarde a medianoche, así que si empiezas tarde caben menos. |
 | `aviso_minutos_antes` | `5` | Minutos antes de cada sesión en que suena el aviso (`0` = justo al empezar). |
 | `id_calendario` | `"primary"` | Calendario de Google donde se crean las sesiones. `primary` es el principal. |
 
@@ -177,7 +181,7 @@ Puedes cambiar estos valores con el Bloc de notas. Respeta las comillas y las co
 2. **Reparte las sesiones entre los días de estudio:**
    - Empieza por los temas de **mayor prioridad**. Si no cabe todo en la semana, se quedan fuera primero los de **menor prioridad**, y `generar` te avisa de cuántos minutos faltaron.
    - Un mismo tema va a **días distintos** y, si se puede, **no seguidos** (por ejemplo lunes, miércoles y viernes). Estudiar con espacio entre repasos ayuda a recordar.
-   - Intenta que cada día tenga una **carga parecida**, sin pasar del máximo diario.
+   - Intenta que cada día tenga una **carga parecida**, sin pasar del máximo diario y terminando antes de medianoche.
 3. **Ordena cada día:** primero lo más prioritario (cuando estás más fresco) y sin repetir el mismo tema dos veces seguidas si hay alternativa.
 4. **Pone las horas:** desde tu hora de inicio, con descanso corto entre sesiones y uno largo cada 4.
 
@@ -185,6 +189,7 @@ Puedes cambiar estos valores con el Bloc de notas. Respeta las comillas y las co
 
 | Archivo | Para qué sirve |
 |---|---|
+| `GUIA_DE_INICIO.md` | Guía paso a paso para instalarlo y conectarlo con Google la primera vez. |
 | `planificador.py` | El programa que ejecutas: lee los comandos y muestra los resultados. |
 | `repartidor.py` | El "motor": parte los temas en sesiones y las reparte por días. |
 | `calendario_google.py` | La conexión con Google Calendar (iniciar sesión, crear y borrar eventos). |
@@ -204,14 +209,15 @@ El código está comentado línea por línea, por si quieres entender o cambiar 
 | Mensaje o problema | Solución |
 |---|---|
 | `Faltan las librerías de Google` | Ejecuta `python -m pip install -r requirements.txt`. |
-| `No encuentro credentials.json` | Sigue la sección 5.3 y comprueba que el archivo se llama exactamente `credentials.json` (Windows a veces oculta la extensión y queda `credentials.json.json`). |
+| `No encuentro credentials.json` | Sigue la sección 5.3 y comprueba que el archivo se llama exactamente `credentials.json` (Windows a veces oculta la extensión y queda `credentials.json.json`). Si el mensaje dice "Pero encontré…", renombra el archivo que indica. |
 | En el navegador: **"Acceso bloqueado"** o **error 403: access_denied** | No añadiste tu correo como *test user* (sección 5.2, paso 6). |
 | `Google Calendar respondió con un error (403)` y habla de la API | La API no está habilitada en tu proyecto (sección 5.1, paso 3). |
 | `Ya hay N sesiones del planificador en tu calendario...` | Ya habías subido sesiones en esas fechas. Usa `subir --reemplazar` para cambiarlas por las nuevas. |
 | El navegador se abre otra vez para pedir permiso | Pasa cada 7 días en modo *Testing* (ver sección 5.4). Acepta otra vez. |
 | Quiero usar otra cuenta de Google | Borra `token.json` y vuelve a ejecutar `subir`. |
 | No me llegan los avisos al teléfono | Revisa la sección 6: misma cuenta en el teléfono, notificaciones de la app activadas y, si usas un calendario aparte, que esté marcado como visible en la app. |
-| `no entraron N sesiones` al generar | Pides más minutos de los que caben. Sube `maximo_minutos_por_dia`, agrega días en `horario` o baja minutos de algún tema. |
+| `no entraron N sesiones` al generar | Pides más minutos de los que caben. Sube `maximo_minutos_por_dia`, agrega días en `horario`, empieza más temprano (si estudias de noche) o baja minutos de algún tema. |
+| `datos/temas.json está mal escrito` o `el plan guardado está dañado` | Alguien editó esos archivos a mano. Corrige el tema que indica el mensaje, o borra `datos/temas.json` y vuelve a agregar tus temas. Para el plan, basta con ejecutar `generar` otra vez. |
 | Las tildes se ven como `�` | Pasa si rediriges la salida a otro programa. En una ventana normal de PowerShell o Terminal se ven bien. |
 
 ## 11. Pruebas automáticas
