@@ -16,6 +16,8 @@ from dataclasses import dataclass
 # Herramientas de fechas: date (día), datetime (día + hora), time (hora), timedelta (duración).
 from datetime import date, datetime, time, timedelta
 
+# El módulo de datos (de él sale, por ejemplo, cómo se genera un plan, para los mensajes).
+import almacen
 # Usamos la lista de días, el lector de horas y el tipo de error del módulo de datos.
 from almacen import DIAS_SEMANA, ErrorPlanificador, leer_hora
 
@@ -367,7 +369,7 @@ def plan_desde_dict(datos):
     Si el archivo del plan está incompleto o mal editado, lanza un error claro en vez de fallar a medias.
     """
     # Mensaje por si el archivo está dañado.
-    danado = "El plan guardado (datos/plan.json) está dañado. Vuelve a crearlo con:  python planificador.py generar"
+    danado = f"El plan guardado (datos/plan.json) está dañado. Vuelve a crearlo con:  {almacen.COMO_GENERAR}"
     # Intentamos reconstruir el plan.
     try:
         # Los textos vuelven a ser fechas y los diccionarios, sesiones.

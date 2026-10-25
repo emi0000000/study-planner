@@ -12,6 +12,9 @@ Qué hace esta primera versión:
 - Guarda temas con su **prioridad** (1 a 5) y los **minutos por semana** que quieres dedicarles.
 - Genera las **sesiones cortas de cada día** para los próximos 7 días, con descansos entre medias.
 - Crea esas sesiones en **Google Calendar** (API gratuita) con un aviso tipo notificación.
+- Tiene una **ventana con botones**, para usarlo sin escribir comandos.
+
+![La ventana del planificador: el plan de la semana, día por día y con colores según la prioridad](docs/ventana.png)
 
 ---
 
@@ -34,6 +37,22 @@ python -m pip install -r requirements.txt
 > Sin estas librerías la app funciona igual para guardar temas y generar el plan. Solo las necesita para `subir` y `limpiar`.
 
 ## 3. Uso rápido
+
+### Con la ventana (lo más fácil)
+
+Haz **doble clic en `Abrir planificador.bat`** (o, en la terminal, escribe `python interfaz.py`). La ventana tiene cinco pestañas:
+
+| Pestaña | Para qué sirve |
+|---|---|
+| **Hoy** | Las sesiones de hoy, con la que toca ahora resaltada. |
+| **Semana** | Botón **Generar plan** y el plan de 7 días, día por día, con colores según la prioridad. Debajo, cuánto tiempo recibe cada tema. |
+| **Temas** | Agregar, cambiar o quitar temas (haz clic en un tema para cambiarlo). |
+| **Google Calendar** | Te dice qué falta para conectar, sube el plan al calendario o borra sus sesiones. |
+| **Ajustes** | Cambia `config.json` con casillas: duración de las sesiones, descansos, días y horas, aviso en el teléfono. |
+
+La ventana y los comandos usan los mismos datos, así que puedes usar lo que prefieras en cada momento.
+
+### Con comandos
 
 ```bash
 python planificador.py agregar "Matemáticas" --prioridad 5 --minutos 150
@@ -190,13 +209,16 @@ Puedes cambiar estos valores con el Bloc de notas. Respeta las comillas y las co
 | Archivo | Para qué sirve |
 |---|---|
 | `GUIA_DE_INICIO.md` | Guía paso a paso para instalarlo y conectarlo con Google la primera vez. |
-| `planificador.py` | El programa que ejecutas: lee los comandos y muestra los resultados. |
+| `Abrir planificador.bat` | Abre la ventana con doble clic (Windows). |
+| `interfaz.py` | La ventana con botones. |
+| `planificador.py` | El programa de comandos: lee lo que escribes en la terminal y muestra los resultados. |
 | `repartidor.py` | El "motor": parte los temas en sesiones y las reparte por días. |
 | `calendario_google.py` | La conexión con Google Calendar (iniciar sesión, crear y borrar eventos). |
 | `almacen.py` | Guarda y lee los temas, la configuración y el plan. |
 | `config.json` | Tus ajustes (ver sección 7). |
 | `requirements.txt` | Lista de librerías de Google que hay que instalar. |
 | `tests/` | Pruebas automáticas. |
+| `docs/` | Imágenes para este README. |
 | `datos/temas.json` | Tus temas (se crea al agregar el primero). |
 | `datos/plan.json` | El último plan generado. |
 | `credentials.json` | Lo descargas de Google (sección 5). **Privado.** |
@@ -228,7 +250,7 @@ Para comprobar que todo funciona (no se conecta a Google; usa respuestas simulad
 python -m unittest discover -s tests -v
 ```
 
-Si las librerías de Google no están instaladas, las pruebas de conexión se saltan y el resto se ejecuta igual.
+Si las librerías de Google no están instaladas, las pruebas de conexión se saltan y el resto se ejecuta igual. Lo mismo con las pruebas de la ventana si tu Python no tiene tkinter o no hay pantalla (por ejemplo, en un servidor).
 
 ## 12. Fuera de esta versión
 

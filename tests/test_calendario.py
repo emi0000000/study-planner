@@ -17,6 +17,8 @@ import unittest
 from datetime import date, datetime
 # Path para manejar rutas.
 from pathlib import Path
+# patch cambia temporalmente un valor durante la prueba; Mock crea objetos de mentira.
+from unittest.mock import Mock, patch
 # Para leer los parámetros de una dirección web.
 from urllib.parse import parse_qs, urlparse
 
@@ -202,6 +204,52 @@ class SubirYBorrar(unittest.TestCase):
             with self.assertRaisesRegex(almacen.ErrorPlanificador, "credentials.json.json"):
                 # Intento de conexión.
                 calendario_google.conectar(base / "credentials.json", base / "token.json")
+
+
+@unittest.skipUnless(HAY_GOOGLE, "faltan las librerías de Google (pip install -r requirements.txt)")
+class InicioDeSesion(unittest.TestCase):
+    """Qué pasa si el permiso en el navegador no sale bien (sin abrir el navegador de verdad)."""
+
+    def conectar_con_error(self, error):
+        """Simula que el inicio de sesión falla con `error` y devuelve el mensaje para el usuario."""
+        # Flujo de inicio de sesión de Google.
+        from google_auth_oauthlib.flow import InstalledAppFlow
+
+        # Flujo de mentira cuyo navegador "falla" con el error indicado.
+        self.flujo = Mock()
+        # El error.
+        self.flujo.run_local_server.side_effect = error
+        # Carpeta temporal con un credentials.json cualquiera y sin token.json.
+        with tempfile.TemporaryDirectory() as carpeta:
+            # Ruta de la carpeta.
+            base = Path(carpeta)
+            # Archivo de credenciales (su contenido no importa: el flujo es de mentira).
+            (base / "credentials.json").write_text("{}", encoding="utf-8")
+            # Usamos el flujo de mentira.
+            with patch.object(InstalledAppFlow, "from_client_secrets_file", return_value=self.flujo):
+                # Debe dar un error para el usuario.
+                with self.assertRaises(almacen.ErrorPlanificador) as contexto:
+                    # Intento de conexión.
+                    calendario_google.conectar(base / "credentials.json", base / "token.json")
+        # Devolvemos el mensaje.
+        return str(contexto.exception)
+
+    def test_si_no_llega_el_permiso_a_tiempo(self):
+        # Google avisa del tiempo agotado con un AttributeError.
+        self.assertIn("a tiempo", self.conectar_con_error(AttributeError("Timed out")))
+        # Y se le pidió esperar como mucho 5 minutos.
+        self.assertEqual(self.flujo.run_local_server.call_args.kwargs["timeout_seconds"], 300)
+
+    def test_si_se_cancela_el_permiso(self):
+        # Error que da Google al pulsar "Cancelar".
+        from oauthlib.oauth2.rfc6749.errors import AccessDeniedError
+
+        # El mensaje explica qué pasó.
+        self.assertIn("access_denied", self.conectar_con_error(AccessDeniedError()))
+
+    def test_si_no_se_marca_la_casilla_del_permiso(self):
+        # Así avisa la librería cuando falta el permiso de Calendar.
+        self.assertIn("marca la casilla", self.conectar_con_error(Warning("Scope has changed")))
 
 
 # Permite ejecutar este archivo directamente.

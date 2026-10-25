@@ -82,6 +82,20 @@ class Configuracion(unittest.TestCase):
             # Intento de carga.
             almacen.cargar_config(self.ruta)
 
+    def test_guardar_config_revisa_antes_de_guardar(self):
+        # Ajustes válidos, con un día escrito con tilde.
+        config = almacen.guardar_config({"maximo_minutos_por_dia": 90, "horario": {"Sábado": "09:30"}}, self.ruta)
+        # Se guardaron ya normalizados (y con el resto de valores por defecto).
+        self.assertEqual(almacen.cargar_config(self.ruta), config)
+        # El día quedó sin tilde.
+        self.assertEqual(config["horario"], {"sabado": "09:30"})
+        # Ajustes con un error.
+        with self.assertRaises(almacen.ErrorPlanificador):
+            # Intento de guardar una hora imposible.
+            almacen.guardar_config({"horario": {"lunes": "99:00"}}, self.ruta)
+        # El archivo no cambió.
+        self.assertEqual(almacen.cargar_config(self.ruta), config)
+
     def test_json_mal_escrito_da_error_claro(self):
         # Falta cerrar la llave.
         self.ruta.write_text('{"duracion_sesion": 25', encoding="utf-8")
