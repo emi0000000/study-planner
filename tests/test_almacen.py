@@ -120,6 +120,25 @@ class Temas(unittest.TestCase):
             # Intento con solo espacios.
             almacen.agregar_tema([], "   ", 3, 60)
 
+    def test_temas_json_mal_editado_da_error_claro(self):
+        # Carpeta temporal para el archivo de prueba.
+        with tempfile.TemporaryDirectory() as carpeta:
+            # Ruta del temas.json de prueba.
+            ruta = Path(carpeta) / "temas.json"
+            # Un tema bien y otro al que le falta la prioridad.
+            ruta.write_text(
+                json.dumps([{"nombre": "Física", "prioridad": 3, "minutos_semana": 60}, {"nombre": "Química", "minutos_semana": 60}]),
+                encoding="utf-8",
+            )
+            # El error dice cuál es el tema mal escrito.
+            with self.assertRaisesRegex(almacen.ErrorPlanificador, "número 2"):
+                # Intento de carga.
+                almacen.cargar_temas(ruta)
+            # Si se arregla, se carga sin problema.
+            ruta.write_text(json.dumps([{"nombre": "Física", "prioridad": 3, "minutos_semana": 60}]), encoding="utf-8")
+            # Un tema.
+            self.assertEqual(len(almacen.cargar_temas(ruta)), 1)
+
     def test_quitar(self):
         # Lista con un tema.
         temas = [{"nombre": "Física", "prioridad": 3, "minutos_semana": 60}]

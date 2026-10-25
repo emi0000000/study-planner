@@ -165,7 +165,7 @@ Puedes cambiar estos valores con el Bloc de notas. Respeta las comillas y las co
 | `descanso_largo` | `15` | Minutos del descanso largo. |
 | `sesiones_antes_de_descanso_largo` | `4` | Cada cuántas sesiones toca el descanso largo (`0` = nunca). |
 | `maximo_minutos_por_dia` | `120` | Máximo de estudio por día, sin contar descansos (`0` = sin límite). |
-| `horario` | lunes a viernes `18:00`, sábado `10:00` | Días en que estudias y a qué hora empiezas cada uno. Quita un día para no estudiar ese día. Ejemplo: `{"lunes": "17:30", "domingo": "11:00"}`. |
+| `horario` | lunes a viernes `18:00`, sábado `10:00` | Días en que estudias y a qué hora empiezas cada uno. Quita un día para no estudiar ese día. Ejemplo: `{"lunes": "17:30", "domingo": "11:00"}`. Las sesiones de un día terminan como muy tarde a medianoche, así que si empiezas tarde caben menos. |
 | `aviso_minutos_antes` | `5` | Minutos antes de cada sesión en que suena el aviso (`0` = justo al empezar). |
 | `id_calendario` | `"primary"` | Calendario de Google donde se crean las sesiones. `primary` es el principal. |
 
@@ -177,7 +177,7 @@ Puedes cambiar estos valores con el Bloc de notas. Respeta las comillas y las co
 2. **Reparte las sesiones entre los días de estudio:**
    - Empieza por los temas de **mayor prioridad**. Si no cabe todo en la semana, se quedan fuera primero los de **menor prioridad**, y `generar` te avisa de cuántos minutos faltaron.
    - Un mismo tema va a **días distintos** y, si se puede, **no seguidos** (por ejemplo lunes, miércoles y viernes). Estudiar con espacio entre repasos ayuda a recordar.
-   - Intenta que cada día tenga una **carga parecida**, sin pasar del máximo diario.
+   - Intenta que cada día tenga una **carga parecida**, sin pasar del máximo diario y terminando antes de medianoche.
 3. **Ordena cada día:** primero lo más prioritario (cuando estás más fresco) y sin repetir el mismo tema dos veces seguidas si hay alternativa.
 4. **Pone las horas:** desde tu hora de inicio, con descanso corto entre sesiones y uno largo cada 4.
 
@@ -211,7 +211,8 @@ El código está comentado línea por línea, por si quieres entender o cambiar 
 | El navegador se abre otra vez para pedir permiso | Pasa cada 7 días en modo *Testing* (ver sección 5.4). Acepta otra vez. |
 | Quiero usar otra cuenta de Google | Borra `token.json` y vuelve a ejecutar `subir`. |
 | No me llegan los avisos al teléfono | Revisa la sección 6: misma cuenta en el teléfono, notificaciones de la app activadas y, si usas un calendario aparte, que esté marcado como visible en la app. |
-| `no entraron N sesiones` al generar | Pides más minutos de los que caben. Sube `maximo_minutos_por_dia`, agrega días en `horario` o baja minutos de algún tema. |
+| `no entraron N sesiones` al generar | Pides más minutos de los que caben. Sube `maximo_minutos_por_dia`, agrega días en `horario`, empieza más temprano (si estudias de noche) o baja minutos de algún tema. |
+| `datos/temas.json está mal escrito` o `el plan guardado está dañado` | Alguien editó esos archivos a mano. Corrige el tema que indica el mensaje, o borra `datos/temas.json` y vuelve a agregar tus temas. Para el plan, basta con ejecutar `generar` otra vez. |
 | Las tildes se ven como `�` | Pasa si rediriges la salida a otro programa. En una ventana normal de PowerShell o Terminal se ven bien. |
 
 ## 11. Pruebas automáticas

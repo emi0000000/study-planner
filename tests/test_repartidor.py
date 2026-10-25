@@ -161,6 +161,44 @@ class GenerarPlan(unittest.TestCase):
         # Debe quedar idéntico.
         self.assertEqual(recuperado, plan)
 
+    def test_plan_danado_da_error_claro(self):
+        # Le falta la fecha de inicio.
+        with self.assertRaisesRegex(almacen.ErrorPlanificador, "dañado"):
+            # Intento de lectura.
+            repartidor.plan_desde_dict({"hasta": "2026-11-01", "sesiones": []})
+        # Una sesión sin hora.
+        with self.assertRaisesRegex(almacen.ErrorPlanificador, "dañado"):
+            # Intento de lectura.
+            repartidor.plan_desde_dict(
+                {"desde": "2026-10-26", "hasta": "2026-11-01", "sesiones": [{"tema": "A", "prioridad": 3, "minutos": 25}]}
+            )
+        # Una lista en lugar de un objeto.
+        with self.assertRaisesRegex(almacen.ErrorPlanificador, "dañado"):
+            # Intento de lectura.
+            repartidor.plan_desde_dict([])
+
+    def test_no_pasa_de_medianoche(self):
+        # Se empieza a las 23:00 y sin límite diario: solo caben 2 sesiones de 25 antes de las 00:00.
+        config = config_base(horario={"lunes": "23:00"}, maximo_minutos_por_dia=0)
+        # Pedimos 150 minutos (6 sesiones).
+        plan = repartidor.generar_plan([tema("A", 3, 150)], config, LUNES)
+        # Entran 23:00-23:25 y 23:30-23:55.
+        self.assertEqual([f"{s.inicio:%H:%M}-{s.fin:%H:%M}" for s in plan["sesiones"]], ["23:00-23:25", "23:30-23:55"])
+        # Las otras 4 quedan fuera (y no pasan al martes de madrugada).
+        self.assertEqual(len(plan["sin_lugar"]), 4)
+
+    def test_duracion_con_descansos_coincide_con_los_horarios(self):
+        # Solo lunes y sin límite, para que todo caiga el mismo día.
+        config = config_base(horario={"lunes": "18:00"}, maximo_minutos_por_dia=0)
+        # Varios temas, con sesiones de distinta duración.
+        plan = repartidor.generar_plan([tema("A", 5, 110), tema("B", 3, 85), tema("C", 1, 40)], config, LUNES)
+        # Lo que calcula la función...
+        calculado = repartidor.duracion_con_descansos([s.minutos for s in plan["sesiones"]], config)
+        # ...debe ser igual a lo que hay de verdad entre el inicio de la primera y el fin de la última.
+        real = (plan["sesiones"][-1].fin - plan["sesiones"][0].inicio).total_seconds() / 60
+        # Comprobamos.
+        self.assertEqual(calculado, real)
+
 
 class PrimerDiaPorDefecto(unittest.TestCase):
     """Pruebas de qué día empieza el plan si no se indica --desde."""
