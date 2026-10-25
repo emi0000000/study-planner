@@ -9,6 +9,8 @@ Los datos son los mismos que usan los comandos (config.json y la carpeta datos/)
 así que puedes usar la ventana y la terminal indistintamente.
 """
 
+# copy duplica los ajustes de fábrica para usarlos sin cambiarlos.
+import copy
 # functools ayuda a crear el "envoltorio" que muestra los errores en una ventanita.
 import functools
 # queue pasa mensajes desde las tareas en segundo plano a la ventana.
@@ -37,12 +39,18 @@ from tkinter import ttk
 
 # Módulo que guarda y lee los datos (temas, configuración, plan).
 import almacen
+# Asistente con inteligencia artificial (Claude o Gemini).
+import asistente
 # Módulo que habla con Google Calendar.
 import calendario_google
 # El programa de comandos: reutilizamos sus funciones de ayuda.
 import planificador
+# Lo hecho, las metas y el plan adaptado.
+import progreso
 # Módulo que reparte el tiempo en sesiones.
 import repartidor
+# "150" -> "2 h 30 min" (la misma función que usan los comandos).
+from progreso import minutos_a_texto
 
 # Dirección de la guía de inicio en GitHub (se ve con formato en el navegador).
 URL_GUIA = "https://github.com/emi0000000/study-planner/blob/main/GUIA_DE_INICIO.md"
@@ -125,22 +133,6 @@ def fecha_larga(fecha):
     return f"{DIAS_VISIBLES[fecha.weekday()]} {fecha.day} de {MESES[fecha.month - 1]}"
 
 
-def minutos_a_texto(minutos):
-    """Convierte 150 en "2 h 30 min", 45 en "45 min" y 120 en "2 h"."""
-    # Horas completas y minutos sueltos.
-    horas, resto = divmod(minutos, 60)
-    # Menos de una hora.
-    if not horas:
-        # Solo minutos.
-        return f"{resto} min"
-    # Horas justas.
-    if not resto:
-        # Solo horas.
-        return f"{horas} h"
-    # Horas y minutos.
-    return f"{horas} h {resto} min"
-
-
 def proxima_sesion(plan, ahora):
     """Devuelve la primera sesión del plan que todavía no terminó (o None si no queda ninguna)."""
     # Si no hay plan, no hay sesión.
@@ -175,15 +167,17 @@ def con_avisos(metodo):
 class EscritorCola:
     """Hace de "pantalla" para print(): manda cada línea a la ventana a través de la cola."""
 
-    def __init__(self, cola):
+    def __init__(self, cola, pestana):
         # Cola por la que viajan los mensajes.
         self.cola = cola
+        # Pestaña donde se escriben.
+        self.pestana = pestana
 
     def write(self, texto):
         # Ignoramos los saltos de línea sueltos.
         if texto.strip():
-            # Mandamos la línea al registro de la ventana.
-            self.cola.put(("registro", texto.rstrip()))
+            # Mandamos la línea a la pestaña.
+            self.cola.put(("registro", self.pestana, texto.rstrip()))
 
     def flush(self):
         # No hace falta hacer nada: cada línea ya se envió.
@@ -251,14 +245,20 @@ class MarcoDesplazable(ttk.Frame):
             # Movemos el lienzo.
             self.lienzo.yview_scroll(pasos, "units")
 
-    def vaciar(self):
-        """Quita todos los contenidos y vuelve arriba del todo."""
+    def vaciar(self, mantener_posicion=False):
+        """Quita todos los contenidos y vuelve arriba del todo (o, si se pide, deja la barra donde estaba)."""
+        # Posición actual de la barra (0 = arriba del todo).
+        posicion = self.lienzo.yview()[0]
         # Borramos cada elemento del interior.
         for hijo in self.interior.winfo_children():
             # Lo destruimos.
             hijo.destroy()
-        # Volvemos arriba.
+        # Volvemos arriba...
         self.lienzo.yview_moveto(0)
+        # ...o, si se pidió, a donde estaba cuando ya se hayan dibujado los contenidos nuevos.
+        if mantener_posicion and posicion:
+            # Después de dibujar.
+            self.lienzo.after_idle(lambda: self.lienzo.yview_moveto(posicion))
 
 
 def ajustar_al_ancho(etiqueta):
@@ -299,8 +299,32 @@ def tarjeta(padre, titulo=None):
     return marco, contenido
 
 
-def tarjeta_sesion(padre, sesion, fuentes, estado=""):
-    """Crea la tarjeta de una sesión para la pestaña Hoy. `estado` puede ser "ahora", "siguiente" o "pasada"."""
+def botones_marcar(padre, marca, al_marcar, fondo):
+    """Botones «Hecha» y «No la hice». El marcado se resalta; pulsarlo otra vez quita la marca.
+
+    `al_marcar(estado)` recibe "hecha", "no_hecha" o None (quitar la marca).
+    """
+    # Marco para los dos botones.
+    marco = tk.Frame(padre, background=fondo)
+    # Los dos botones, con su estado y su estilo cuando están activos.
+    for posicion, (estado, texto, estilo_activo) in enumerate((("hecha", "Hecha", "MarcaHecha.TButton"),
+                                                                ("no_hecha", "No la hice", "MarcaNo.TButton"))):
+        # ¿Es el estado marcado ahora?
+        activo = marca == estado
+        # Botón: resaltado si está activo; al pulsarlo marca ese estado, o quita la marca si ya lo tenía.
+        ttk.Button(marco, text=texto, style=estilo_activo if activo else "Marca.TButton",
+                   command=lambda e=estado, a=activo: al_marcar(None if a else e)).pack(
+            side="left", padx=(6 if posicion else 0, 0))
+    # Devolvemos el marco para colocarlo.
+    return marco
+
+
+def tarjeta_sesion(padre, sesion, fuentes, estado="", marca=None, al_marcar=None):
+    """Crea la tarjeta de una sesión para la pestaña Hoy.
+
+    `estado` (según la hora) puede ser "ahora", "siguiente" o "pasada"; `marca` es "hecha", "no_hecha" o None;
+    con `al_marcar`, la tarjeta lleva los botones «Hecha» y «No la hice».
+    """
     # Colores según la prioridad del tema.
     fuerte, _suave = COLORES_PRIORIDAD.get(sesion.prioridad, COLORES_PRIORIDAD[1])
     # ¿Ya terminó esta sesión?
@@ -319,6 +343,19 @@ def tarjeta_sesion(padre, sesion, fuentes, estado=""):
     # Hora de inicio y de fin, una debajo de la otra.
     tk.Label(marco, text=f"{sesion.inicio:%H:%M}\n{sesion.fin:%H:%M}", font=fuentes["hora"], background=fondo,
              foreground=texto, justify="center").pack(side="left", padx=(16, 18), pady=12)
+    # Etiqueta de estado a la derecha (si la hay): texto y color.
+    etiquetas = {"ahora": ("Ahora", COLOR_ACENTO), "siguiente": ("Siguiente", COLOR_BIEN), "pasada": ("Ya pasó", "#9aa0a6")}
+    # Si la sesión tiene estado, mostramos su etiqueta (a la derecha del todo).
+    if estado in etiquetas:
+        # Texto y color de la etiqueta.
+        rotulo, color = etiquetas[estado]
+        # Etiqueta tipo "píldora".
+        tk.Label(marco, text=rotulo, font=fuentes["pequena_negrita"], background=color, foreground="white",
+                 padx=10, pady=3).pack(side="right", padx=16)
+    # Botones para marcarla (a la izquierda de la etiqueta).
+    if al_marcar:
+        # Los colocamos.
+        botones_marcar(marco, marca, al_marcar, fondo).pack(side="right", padx=(8, 0 if estado in etiquetas else 16))
     # Parte central con el tema y los detalles.
     centro = tk.Frame(marco, background=fondo)
     # Ocupa el espacio que sobra.
@@ -326,25 +363,21 @@ def tarjeta_sesion(padre, sesion, fuentes, estado=""):
     # Nombre del tema, grande.
     tk.Label(centro, text=sesion.tema, font=fuentes["tema"], background=fondo, foreground=texto,
              anchor="w").pack(fill="x")
-    # Detalles: número de sesión, duración y prioridad.
-    tk.Label(centro, text=f"Sesión {sesion.numero} de {sesion.total} esta semana  ·  {sesion.minutos} min  ·  "
-             f"prioridad {sesion.prioridad}", font=fuentes["normal"], background=fondo,
-             foreground=COLOR_SUAVE, anchor="w").pack(fill="x")
-    # Etiqueta de estado a la derecha (si la hay): texto y color.
-    etiquetas = {"ahora": ("Ahora", COLOR_ACENTO), "siguiente": ("Siguiente", COLOR_BIEN), "pasada": ("Ya pasó", "#9aa0a6")}
-    # Si la sesión tiene estado, mostramos su etiqueta.
-    if estado in etiquetas:
-        # Texto y color de la etiqueta.
-        rotulo, color = etiquetas[estado]
-        # Etiqueta tipo "píldora".
-        tk.Label(marco, text=rotulo, font=fuentes["pequena_negrita"], background=color, foreground="white",
-                 padx=10, pady=3).pack(side="right", padx=16)
+    # Detalles: número de sesión, duración, prioridad y si es una recuperación.
+    detalles = f"Sesión {sesion.numero} de {sesion.total} esta semana  ·  {sesion.minutos} min  ·  prioridad {sesion.prioridad}"
+    # Recuperación.
+    if sesion.recuperacion:
+        # Lo añadimos.
+        detalles += "  ·  para recuperar una no hecha"
+    # Etiqueta de los detalles.
+    ajustar_al_ancho(tk.Label(centro, text=detalles, font=fuentes["normal"], background=fondo,
+                              foreground=COLOR_SUAVE, anchor="w", justify="left")).pack(fill="x")
     # Devolvemos la tarjeta para colocarla.
     return marco
 
 
 class PestanaHoy(ttk.Frame):
-    """Pestaña "Hoy": las sesiones del día, con la que toca ahora resaltada."""
+    """Pestaña "Hoy": las sesiones del día, para marcarlas como hechas o no hechas."""
 
     def __init__(self, padre, app):
         # Marco de la pestaña con margen interior.
@@ -365,15 +398,15 @@ class PestanaHoy(ttk.Frame):
         self.lista.pack(fill="both", expand=True)
 
     def refrescar(self):
-        """Vuelve a dibujar la pestaña con la hora actual."""
+        """Vuelve a dibujar la pestaña con la hora actual (sin perder hasta dónde se había bajado)."""
         # Fecha y hora de este momento.
         ahora = datetime.now()
         # Fecha de hoy.
         hoy = ahora.date()
         # Título con la fecha larga, con mayúscula inicial.
         self.titulo.configure(text=f"Hoy, {fecha_larga(hoy)}")
-        # Quitamos las tarjetas anteriores.
-        self.lista.vaciar()
+        # Quitamos las tarjetas anteriores (recordando la posición de la barra).
+        self.lista.vaciar(mantener_posicion=True)
         # Plan guardado (o None si no hay).
         plan = self.app.plan
         # Sin plan todavía.
@@ -384,6 +417,8 @@ class PestanaHoy(ttk.Frame):
                           ("Ir a Temas", self.app.pestana_temas))
             # Terminamos.
             return
+        # Sesiones hechas y no hechas.
+        registro = self.app.registro()
         # El plan no incluye el día de hoy.
         if not plan["desde"] <= hoy <= plan["hasta"]:
             # Explicamos qué hacer.
@@ -391,10 +426,19 @@ class PestanaHoy(ttk.Frame):
                           f"Va del {fecha_corta(plan['desde'])} al {fecha_corta(plan['hasta'])}. "
                           "Genera uno nuevo en la pestaña Semana.",
                           ("Ir a Semana", self.app.pestana_semana))
-            # Terminamos.
-            return
-        # Sesiones de hoy.
-        sesiones = repartidor.sesiones_del_dia(plan, hoy)
+        # Hoy sí está en el plan.
+        else:
+            # Sesiones de hoy.
+            self._dibujar_hoy(repartidor.sesiones_del_dia(plan, hoy), plan, registro, ahora)
+        # Sesiones de días anteriores que quedaron sin marcar.
+        atrasadas = [s for s in progreso.sin_marcar(plan, registro, ahora) if s.inicio.date() < hoy]
+        # Si hay, las mostramos debajo.
+        if atrasadas:
+            # Sección.
+            self._dibujar_atrasadas(atrasadas)
+
+    def _dibujar_hoy(self, sesiones, plan, registro, ahora):
+        """Dibuja las tarjetas de las sesiones de hoy (o el aviso de día libre)."""
         # Día sin sesiones.
         if not sesiones:
             # Próxima sesión del plan (otro día).
@@ -408,11 +452,11 @@ class PestanaHoy(ttk.Frame):
             return
         # Minutos de estudio del día.
         total = sum(s.minutos for s in sesiones)
-        # Cuántas quedan por hacer.
-        pendientes = sum(1 for s in sesiones if s.fin > ahora)
+        # Cuántas hechas.
+        hechas = sum(1 for s in sesiones if progreso.estado_de(registro, s) == "hecha")
         # Subtítulo con el resumen del día.
         self.subtitulo.configure(text=f"{len(sesiones)} sesiones · {minutos_a_texto(total)} de estudio · "
-                                      f"{'te quedan ' + str(pendientes) if pendientes else 'ya terminaste por hoy'}")
+                                      f"{hechas} hechas. Marca cada una al terminar: así el plan se adapta a ti.")
         # La siguiente sesión que todavía no empezó.
         siguiente = next((s for s in sesiones if s.inicio > ahora), None)
         # Una tarjeta por sesión.
@@ -433,8 +477,62 @@ class PestanaHoy(ttk.Frame):
             else:
                 # Sin etiqueta.
                 estado = ""
-            # Creamos y colocamos la tarjeta.
-            tarjeta_sesion(self.lista.interior, sesion, self.app.fuentes, estado).pack(fill="x", pady=5, padx=(0, 8))
+            # Creamos y colocamos la tarjeta, con sus botones para marcarla.
+            tarjeta_sesion(self.lista.interior, sesion, self.app.fuentes, estado, progreso.estado_de(registro, sesion),
+                           lambda nuevo, s=sesion: self.marcar(s, nuevo)).pack(fill="x", pady=5, padx=(0, 8))
+
+    def _dibujar_atrasadas(self, sesiones):
+        """Lista compacta de sesiones de días anteriores sin marcar, con sus botones."""
+        # Título de la sección.
+        tk.Label(self.lista.interior, text=f"Sin marcar de días anteriores ({len(sesiones)})",
+                 font=self.app.fuentes["subtitulo"], background=COLOR_FONDO, foreground=COLOR_TEXTO).pack(
+            anchor="w", pady=(18, 0))
+        # Explicación.
+        tk.Label(self.lista.interior, text="Márcalas para que el próximo plan sepa qué recuperar.",
+                 font=self.app.fuentes["normal"], background=COLOR_FONDO, foreground=COLOR_SUAVE).pack(
+            anchor="w", pady=(0, 6))
+        # Las más recientes primero (como mucho 15).
+        for sesion in sorted(sesiones, key=lambda s: s.inicio, reverse=True)[:15]:
+            # Fila blanca con borde.
+            fila = tk.Frame(self.lista.interior, background=COLOR_TARJETA, highlightbackground=COLOR_BORDE,
+                            highlightthickness=1)
+            # Ocupa el ancho.
+            fila.pack(fill="x", pady=3, padx=(0, 8))
+            # Franja de color de la prioridad.
+            tk.Frame(fila, background=COLORES_PRIORIDAD.get(sesion.prioridad, COLORES_PRIORIDAD[1])[0],
+                     width=5).pack(side="left", fill="y")
+            # Botones para marcarla.
+            botones_marcar(fila, None, lambda nuevo, s=sesion: self.marcar(s, nuevo), COLOR_TARJETA).pack(
+                side="right", padx=12, pady=6)
+            # Día, hora y tema.
+            tk.Label(fila, text=f"{fecha_corta(sesion.inicio.date()).capitalize()}  {sesion.inicio:%H:%M}   "
+                                f"{sesion.tema}", font=self.app.fuentes["normal"], background=COLOR_TARJETA,
+                     foreground=COLOR_TEXTO, anchor="w").pack(side="left", fill="x", expand=True, padx=12)
+        # Si había más, lo decimos.
+        if len(sesiones) > 15:
+            # Aviso.
+            tk.Label(self.lista.interior, text=f"…y {len(sesiones) - 15} más.", font=self.app.fuentes["normal"],
+                     background=COLOR_FONDO, foreground=COLOR_SUAVE).pack(anchor="w")
+
+    @con_avisos
+    def marcar(self, sesion, estado):
+        """Marca una sesión como hecha o no hecha (o le quita la marca) y actualiza la ventana."""
+        # Sesiones marcadas.
+        registro = almacen.cargar_registro()
+        # Marcamos.
+        progreso.marcar(registro, sesion, estado)
+        # Guardamos.
+        almacen.guardar_registro(registro)
+        # Actualizamos lo que depende de esto.
+        self.app.refrescar_progreso()
+        # Mensaje abajo según el caso.
+        texto = {None: "Marca quitada", "hecha": "¡Bien! Sesión hecha", "no_hecha": "Anotado: no la hiciste"}[estado]
+        # Si no la hizo y se recupera, lo explicamos.
+        if estado == "no_hecha" and self.app.config_o_defecto()["recuperar_no_hechas"]:
+            # Explicación.
+            texto += ". Ese tiempo se añadirá al próximo plan para recuperarlo"
+        # Mensaje.
+        self.app.avisar(f"{texto}: {sesion.tema}, {fecha_corta(sesion.inicio.date())} a las {sesion.inicio:%H:%M}.")
 
     def _mensaje(self, titulo, detalle, boton=None):
         """Muestra un mensaje grande en lugar de la lista (y, si se indica, un botón para ir a otra pestaña)."""
@@ -490,6 +588,8 @@ class PestanaSemana(ttk.Frame):
         self.rango = ttk.Label(self, style="Suave.TLabel")
         # Debajo del título.
         self.rango.pack(anchor="w", pady=(2, 0))
+        # Cómo se adaptó el plan (recuperaciones, metas); solo se muestra si hay algo.
+        self.notas = ajustar_al_ancho(ttk.Label(self, style="Info.TLabel", justify="left", anchor="w"))
         # Aviso cuando el plan está desactualizado o algo no entró (solo se muestra si hay algo que avisar).
         self.aviso = ajustar_al_ancho(ttk.Label(self, style="Aviso.TLabel", justify="left", anchor="w"))
         # Página desplazable con la semana y, debajo, el resumen.
@@ -547,13 +647,9 @@ class PestanaSemana(ttk.Frame):
 
     @con_avisos
     def generar(self, desde=None):
-        """Crea el plan de 7 días, lo guarda y lo muestra."""
-        # Leemos la configuración.
-        config = almacen.cargar_config()
-        # Leemos los temas.
-        temas = almacen.cargar_temas()
+        """Crea el plan de 7 días (adaptado a lo hecho y a tus metas), lo guarda y lo muestra."""
         # Sin temas no hay nada que planificar.
-        if not temas:
+        if not almacen.cargar_temas():
             # Explicamos qué hacer.
             messagebox.showinfo("Primero agrega temas", "Todavía no hay temas. Agrégalos en la pestaña Temas.",
                                 parent=self.winfo_toplevel())
@@ -561,13 +657,10 @@ class PestanaSemana(ttk.Frame):
             self.app.cuaderno.select(self.app.pestana_temas)
             # Terminamos.
             return
-        # Día de inicio: el indicado, el de la lista o el automático.
-        desde = desde or self.fechas_inicio[max(self.inicio.current(), 0)] or repartidor.primer_dia_por_defecto(
-            config["horario"], datetime.now())
-        # Creamos el plan.
-        plan = repartidor.generar_plan(temas, config, desde)
-        # Lo guardamos en datos/plan.json.
-        almacen.guardar_plan(repartidor.plan_a_dict(plan))
+        # Día de inicio: el indicado, el de la lista o (si es None) el automático.
+        desde = desde or self.fechas_inicio[max(self.inicio.current(), 0)]
+        # Creamos el plan adaptado y lo guardamos en datos/plan.json.
+        plan = progreso.generar_y_guardar(desde)
         # La ventana pasa a usar este plan.
         self.app.plan = plan
         # Ya no está desactualizado.
@@ -601,7 +694,7 @@ class PestanaSemana(ttk.Frame):
             # Explicación en lugar de las fechas.
             self.rango.configure(text="Todavía no hay plan. Agrega tus temas y pulsa «Generar plan».")
             # Mostramos los avisos (si los hay).
-            self._mostrar_avisos(avisos)
+            self._mostrar_textos([], avisos)
             # Terminamos.
             return
         # Fechas del plan.
@@ -620,10 +713,10 @@ class PestanaSemana(ttk.Frame):
             avisos.append(f"No entraron {len(plan['sin_lugar'])} sesiones ({minutos_a_texto(faltan)}) porque no caben en "
                           "tus días de estudio. Para que entren: sube el máximo diario, agrega días o empieza más "
                           "temprano (pestaña Ajustes), o baja los minutos de algún tema.")
-        # Mostramos los avisos.
-        self._mostrar_avisos(avisos)
+        # Mostramos las notas y los avisos.
+        self._mostrar_textos(plan.get("notas", []), avisos)
         # Dibujamos los 7 días.
-        self._dibujar_dias(plan)
+        self._dibujar_dias(plan, self.app.registro())
         # Prioridad de cada tema, para colorear el resumen.
         prioridades = {s.tema: s.prioridad for s in plan["sesiones"] + plan["sin_lugar"]}
         # Una fila por tema.
@@ -636,21 +729,31 @@ class PestanaSemana(ttk.Frame):
         # La tabla crece un poco si hay muchos temas (hasta 8 filas).
         self.tabla.configure(height=min(max(len(self.tabla.get_children()), 3), 8))
 
-    def _mostrar_avisos(self, avisos):
-        """Muestra los avisos debajo de las fechas, o esconde la línea si no hay ninguno."""
-        # Texto de los avisos, uno por línea.
-        self.aviso.configure(text="\n".join(avisos))
-        # Si hay avisos, la línea se ve debajo de las fechas.
+    def _mostrar_textos(self, notas, avisos):
+        """Muestra, debajo de las fechas, cómo se adaptó el plan y los avisos (o los esconde si no hay)."""
+        # Primero se quitan los dos, para volver a colocarlos en orden.
+        self.notas.pack_forget()
+        # El aviso también.
+        self.aviso.pack_forget()
+        # Debajo de qué va cada línea.
+        anterior = self.rango
+        # Notas, con una viñeta cada una.
+        if notas:
+            # Texto.
+            self.notas.configure(text="Cómo se adaptó este plan:\n" + "\n".join(f"  •  {nota}" for nota in notas))
+            # Debajo de las fechas.
+            self.notas.pack(fill="x", pady=(6, 0), after=anterior)
+            # El aviso irá debajo de las notas.
+            anterior = self.notas
+        # Avisos, uno por línea.
         if avisos:
-            # La colocamos.
-            self.aviso.pack(fill="x", pady=(6, 0), after=self.rango)
-        # Si no, la escondemos para que no ocupe espacio.
-        else:
-            # La quitamos.
-            self.aviso.pack_forget()
+            # Texto.
+            self.aviso.configure(text="\n".join(avisos))
+            # Debajo de lo anterior.
+            self.aviso.pack(fill="x", pady=(6, 0), after=anterior)
 
-    def _dibujar_dias(self, plan):
-        """Dibuja una columna por día, con sus sesiones como tarjetas de colores."""
+    def _dibujar_dias(self, plan, registro):
+        """Dibuja una columna por día, con sus sesiones como tarjetas de colores (y si se hicieron)."""
         # Marco de la cuadrícula.
         interior = self.cuadricula
         # Fuentes de la ventana.
@@ -709,6 +812,18 @@ class PestanaSemana(ttk.Frame):
                 ajustar_al_ancho(tk.Label(textos, text=f"{sesion.tema} ({sesion.numero}/{sesion.total})", anchor="w",
                                           font=fuentes["pequena"], background=suave, foreground=COLOR_TEXTO,
                                           justify="left")).pack(fill="x")
+                # Si es una recuperación, lo decimos.
+                if sesion.recuperacion:
+                    # Etiqueta pequeña.
+                    tk.Label(textos, text="recuperación", font=fuentes["pequena"], background=suave,
+                             foreground=COLOR_SUAVE).pack(anchor="w")
+                # Si ya está marcada, lo decimos en verde o en rojo.
+                marca = progreso.estado_de(registro, sesion)
+                # Marcada.
+                if marca:
+                    # Etiqueta.
+                    tk.Label(textos, text=progreso.NOMBRES_ESTADO[marca], font=fuentes["pequena_negrita"],
+                             background=suave, foreground=COLOR_BIEN if marca == "hecha" else COLOR_MAL).pack(anchor="w")
             # Espacio al final de la columna.
             tk.Frame(dia, background=COLOR_TARJETA, height=8).pack()
 
@@ -985,6 +1100,702 @@ class PestanaTemas(ttk.Frame):
         self.app.avisar(f"Quitado: «{nombre}». Pulsa «Generar plan» en la pestaña Semana para actualizar el plan.")
 
 
+class PestanaMetas(ttk.Frame):
+    """Pestaña "Metas": tus metas (exámenes, entregas...) y tu progreso de los últimos 14 días."""
+
+    def __init__(self, padre, app):
+        # Marco de la pestaña con margen interior.
+        super().__init__(padre, padding=(28, 22))
+        # Referencia a la ventana principal.
+        self.app = app
+        # Título.
+        ttk.Label(self, text="Metas y progreso", style="Titulo.TLabel").pack(anchor="w")
+        # Explicación breve.
+        ajustar_al_ancho(ttk.Label(self, style="Suave.TLabel", justify="left", text=(
+            "Una meta con tema y fecha (por ejemplo, un examen) hace que el plan le dé más prioridad las dos semanas "
+            "anteriores y coloque sus sesiones antes de esa fecha."))).pack(fill="x", pady=(2, 14))
+        # Contenedor de las dos tarjetas.
+        cuerpo = ttk.Frame(self)
+        # Ocupa el resto de la pestaña.
+        cuerpo.pack(fill="both", expand=True)
+        # Las dos columnas crecen igual.
+        cuerpo.columnconfigure((0, 1), weight=1, uniform="metas")
+        # La fila crece hacia abajo.
+        cuerpo.rowconfigure(0, weight=1)
+        # Tarjeta izquierda: las metas.
+        marco_metas, metas = tarjeta(cuerpo, "Tus metas")
+        # A la izquierda.
+        marco_metas.grid(row=0, column=0, sticky="nsew", padx=(0, 9))
+        # Formulario de meta nueva (abajo; se coloca antes que la tabla para que nunca quede cortado).
+        formulario = ttk.Frame(metas, style="Tarjeta.TFrame")
+        # Abajo del todo.
+        formulario.pack(side="bottom", fill="x")
+        # Fila del título y el botón de guardar.
+        titulo = ttk.Frame(formulario, style="Tarjeta.TFrame")
+        # Ocupa el ancho.
+        titulo.pack(fill="x")
+        # Título.
+        ttk.Label(titulo, text="Meta nueva", style="Tarjeta.TLabel").pack(side="left")
+        # Guardar (a la derecha).
+        ttk.Button(titulo, text="Guardar meta", style="Acento.TButton", command=self.guardar).pack(side="right")
+        # Texto de la meta.
+        self.texto = tk.StringVar()
+        # Casilla del texto.
+        casilla = ttk.Entry(formulario, textvariable=self.texto)
+        # Debajo.
+        casilla.pack(fill="x", pady=(4, 8))
+        # Enter guarda.
+        casilla.bind("<Return>", lambda _evento: self.guardar())
+        # Fila con tema, fecha y el botón de guardar.
+        fila = ttk.Frame(formulario, style="Tarjeta.TFrame")
+        # Ocupa el ancho.
+        fila.pack(fill="x")
+        # Título del tema.
+        ttk.Label(fila, text="Tema", style="Tarjeta.TLabel").pack(side="left")
+        # Lista de temas.
+        self.tema = ttk.Combobox(fila, state="readonly", width=14)
+        # Al lado.
+        self.tema.pack(side="left", padx=(6, 12))
+        # Título de la fecha.
+        ttk.Label(fila, text="Fecha", style="Tarjeta.TLabel").pack(side="left")
+        # Fecha escrita.
+        self.fecha = tk.StringVar()
+        # Casilla de la fecha.
+        ttk.Entry(fila, textvariable=self.fecha, width=11).pack(side="left", padx=(6, 0))
+        # Ayuda del formato.
+        ttk.Label(formulario, text="Fecha como AAAA-MM-DD (por ejemplo 2026-11-13). Tema y fecha son opcionales.",
+                  style="TarjetaSuave.TLabel").pack(anchor="w", pady=(4, 0))
+        # Separador encima del formulario.
+        ttk.Separator(metas).pack(side="bottom", fill="x", pady=12)
+        # Botones para la meta elegida (encima del separador).
+        botones = ttk.Frame(metas, style="Tarjeta.TFrame")
+        # Abajo.
+        botones.pack(side="bottom", fill="x", pady=(8, 0))
+        # Cumplida / pendiente.
+        ttk.Button(botones, text="Cumplida / pendiente", command=self.alternar).pack(side="left")
+        # Quitar.
+        ttk.Button(botones, text="Quitar", style="Peligro.TButton", command=self.quitar).pack(side="left", padx=(8, 0))
+        # Tabla de metas (ocupa lo que queda).
+        self.tabla = ttk.Treeview(metas, columns=("meta", "tema", "fecha", "estado"), show="headings", height=5,
+                                  selectmode="browse")
+        # Títulos y anchos de las columnas.
+        for columna, titulo, ancho in (("meta", "Meta", 180), ("tema", "Tema", 100), ("fecha", "Fecha", 95),
+                                       ("estado", "Estado", 110)):
+            # Título.
+            self.tabla.heading(columna, text=titulo, anchor="w")
+            # Ancho.
+            self.tabla.column(columna, width=int(ancho * app.escala), anchor="w")
+        # Las cumplidas, en gris.
+        self.tabla.tag_configure("cumplida", foreground=COLOR_SUAVE)
+        # Las de esta semana, resaltadas.
+        self.tabla.tag_configure("cerca", background="#fff4e5")
+        # La tabla ocupa el espacio disponible.
+        self.tabla.pack(fill="both", expand=True)
+        # Tarjeta derecha: el progreso.
+        marco_progreso, progreso_ = tarjeta(cuerpo, f"Tu progreso (últimos {progreso.DIAS_RECUENTO} días)")
+        # A la derecha.
+        marco_progreso.grid(row=0, column=1, sticky="nsew", padx=(9, 0))
+        # Racha.
+        self.racha = ttk.Label(progreso_, style="RachaTarjeta.TLabel")
+        # Arriba.
+        self.racha.pack(anchor="w")
+        # Totales.
+        self.totales = ttk.Label(progreso_, style="TarjetaSuave.TLabel")
+        # Debajo.
+        self.totales.pack(anchor="w", pady=(2, 10))
+        # Explicación (abajo; se coloca antes que la tabla para que nunca quede cortada).
+        ajustar_al_ancho(ttk.Label(progreso_, style="TarjetaSuave.TLabel", justify="left", text=(
+            "Lo que no haces se añade al próximo plan para recuperarlo, si cabe. «Olvidar» sirve cuando ya no tiene "
+            "sentido recuperarlo. Puedes desactivar la recuperación en Ajustes."))).pack(side="bottom", fill="x", pady=(8, 0))
+        # Olvidar lo pendiente del tema elegido.
+        ttk.Button(progreso_, text="Olvidar lo pendiente del tema elegido",
+                   command=self.olvidar).pack(side="bottom", anchor="w", pady=(8, 0))
+        # Tabla de progreso por tema (ocupa lo que queda).
+        self.tabla_progreso = ttk.Treeview(progreso_, columns=("tema", "hechas", "no", "sin", "cumplido", "pendiente"),
+                                           show="headings", height=5, selectmode="browse")
+        # Títulos y anchos de las columnas ("%" = porcentaje de sesiones hechas entre las marcadas).
+        for columna, titulo, ancho in (("tema", "Tema", 100), ("hechas", "Hechas", 68), ("no", "No hechas", 88),
+                                       ("sin", "Sin marcar", 92), ("cumplido", "%", 50),
+                                       ("pendiente", "Recuperar", 86)):
+            # Título.
+            self.tabla_progreso.heading(columna, text=titulo, anchor="w")
+            # Ancho.
+            self.tabla_progreso.column(columna, width=int(ancho * app.escala), anchor="w")
+        # Ocupa el espacio disponible.
+        self.tabla_progreso.pack(fill="both", expand=True)
+
+    def refrescar(self):
+        """Vuelve a llenar las metas y el progreso."""
+        # Fecha y hora actuales.
+        ahora = datetime.now()
+        # Temas guardados (lista vacía si el archivo está mal).
+        try:
+            # Temas.
+            temas = almacen.cargar_temas()
+        # Archivo mal escrito.
+        except almacen.ErrorPlanificador:
+            # Sin temas.
+            temas = []
+        # Opciones de tema para una meta nueva.
+        self.tema.configure(values=["(ninguno)"] + [t["nombre"] for t in temas])
+        # Si no hay ninguno elegido, "(ninguno)".
+        if self.tema.get() not in self.tema.cget("values"):
+            # Primera opción.
+            self.tema.current(0)
+        # Metas guardadas.
+        try:
+            # Metas.
+            metas = almacen.cargar_metas()
+        # Archivo mal escrito.
+        except almacen.ErrorPlanificador as error:
+            # Lo avisamos.
+            self.app.avisar(str(error), error=True)
+            # Sin metas.
+            metas = []
+        # Meta y tema elegidos antes (para volver a elegirlos después de redibujar).
+        elegida, tema_elegido = self.tabla.selection(), self.tabla_progreso.selection()
+        # Vaciamos la tabla.
+        self.tabla.delete(*self.tabla.get_children())
+        # Pendientes primero, luego por fecha.
+        for meta in sorted(metas, key=lambda m: (bool(m.get("cumplida")), m.get("fecha") or "9999")):
+            # Fecha (si tiene).
+            fecha = date.fromisoformat(meta["fecha"]) if meta.get("fecha") else None
+            # Etiqueta: cumplida, o cercana (próximos 7 días).
+            etiqueta = "cumplida" if meta.get("cumplida") else (
+                "cerca" if fecha and 0 <= (fecha - ahora.date()).days <= 7 else "")
+            # Fila; su identificador es el número de la meta.
+            self.tabla.insert("", "end", iid=str(meta["id"]), tags=(etiqueta,), values=(
+                meta["texto"], meta.get("tema") or "—", f"{fecha:%d/%m/%Y}" if fecha else "—",
+                "Cumplida" if meta.get("cumplida") else (f"Faltan {(fecha - ahora.date()).days} días"
+                                                         if fecha and fecha >= ahora.date() else "Pendiente")))
+        # Progreso de los últimos días.
+        datos = progreso.resumen(self.app.registro(), self.app.plan, temas, ahora)
+        # Racha.
+        self.racha.configure(text=f"Racha: {datos['racha']} {'día' if datos['racha'] == 1 else 'días'} seguidos estudiando")
+        # Totales.
+        marcadas = datos["hechas"] + datos["no_hechas"]
+        # Texto de los totales.
+        self.totales.configure(text=f"{datos['hechas']} sesiones hechas y {datos['no_hechas']} no hechas"
+                                    f"{' (' + str(round(100 * datos['hechas'] / marcadas)) + ' % cumplido)' if marcadas else ''}.")
+        # Vaciamos la tabla de progreso.
+        self.tabla_progreso.delete(*self.tabla_progreso.get_children())
+        # Una fila por tema.
+        for fila in datos["temas"]:
+            # Fila; su identificador es el nombre del tema.
+            self.tabla_progreso.insert("", "end", iid=fila["tema"], values=(
+                fila["tema"], fila["hechas"], fila["no_hechas"], fila["sin_marcar"],
+                f"{fila['cumplimiento']} %" if fila["cumplimiento"] is not None else "—",
+                minutos_a_texto(fila["pendiente"]) if fila["pendiente"] else "—"))
+        # Volvemos a elegir lo que estaba elegido (si sigue existiendo).
+        for tabla, filas in ((self.tabla, elegida), (self.tabla_progreso, tema_elegido)):
+            # Solo las filas que siguen en la tabla.
+            existentes = [fila for fila in filas if tabla.exists(fila)]
+            # Las elegimos.
+            if existentes:
+                # Selección.
+                tabla.selection_set(existentes)
+
+    @con_avisos
+    def guardar(self):
+        """Guarda la meta escrita en el formulario."""
+        # Metas guardadas.
+        metas = almacen.cargar_metas()
+        # Tema elegido ("(ninguno)" = sin tema).
+        tema = self.tema.get() if self.tema.current() > 0 else None
+        # Nueva meta (aquí se revisa el texto, el tema y la fecha).
+        meta = progreso.agregar_meta(metas, self.texto.get(), tema, self.fecha.get().strip() or None,
+                                     almacen.cargar_temas())
+        # Guardamos.
+        almacen.guardar_metas(metas)
+        # Vaciamos el formulario.
+        self.texto.set("")
+        # Fecha vacía.
+        self.fecha.set("")
+        # Si cambia el plan, conviene generarlo otra vez.
+        if meta["tema"] and meta["fecha"]:
+            # Plan desactualizado.
+            self.app.plan_desactualizado = True
+        # Redibujamos.
+        self.app.refrescar_todo()
+        # Mensaje abajo.
+        self.app.avisar(f"Meta guardada: {progreso.texto_meta(meta)}."
+                        f"{' Pulsa «Generar plan» en la pestaña Semana para adaptar el plan.' if self.app.plan_desactualizado else ''}")
+
+    def _meta_elegida(self):
+        """Número de la meta elegida en la tabla, o None (avisando) si no hay ninguna."""
+        # Fila elegida.
+        elegidas = self.tabla.selection()
+        # Si no hay, lo explicamos.
+        if not elegidas:
+            # Aviso.
+            messagebox.showinfo("Elige una meta", "Primero haz clic en una meta de la lista.", parent=self.winfo_toplevel())
+            # Ninguna.
+            return None
+        # Su número.
+        return int(elegidas[0])
+
+    @con_avisos
+    def alternar(self):
+        """Marca la meta elegida como cumplida, o como pendiente si ya lo estaba."""
+        # Meta elegida.
+        numero = self._meta_elegida()
+        # Si no hay, terminamos.
+        if numero is None:
+            # Nada.
+            return
+        # Metas guardadas.
+        metas = almacen.cargar_metas()
+        # Cambiamos su estado.
+        meta = progreso.cumplir_meta(metas, numero, not progreso.buscar_meta(metas, numero).get("cumplida"))
+        # Guardamos.
+        almacen.guardar_metas(metas)
+        # Redibujamos.
+        self.refrescar()
+        # Mensaje abajo.
+        self.app.avisar(f"«{meta['texto']}»: {'¡cumplida! Bien hecho.' if meta['cumplida'] else 'pendiente otra vez.'}")
+
+    @con_avisos
+    def quitar(self):
+        """Quita la meta elegida (después de preguntar)."""
+        # Meta elegida.
+        numero = self._meta_elegida()
+        # Si no hay, terminamos.
+        if numero is None:
+            # Nada.
+            return
+        # Metas guardadas.
+        metas = almacen.cargar_metas()
+        # Texto de la meta.
+        texto = progreso.buscar_meta(metas, numero)["texto"]
+        # Confirmación.
+        if not messagebox.askyesno("Quitar meta", f"¿Quitar la meta «{texto}»?", parent=self.winfo_toplevel()):
+            # No.
+            return
+        # La quitamos.
+        progreso.quitar_meta(metas, numero)
+        # Guardamos.
+        almacen.guardar_metas(metas)
+        # Redibujamos.
+        self.refrescar()
+        # Mensaje abajo.
+        self.app.avisar(f"Meta quitada: «{texto}».")
+
+    @con_avisos
+    def olvidar(self):
+        """Deja de recuperar lo pendiente del tema elegido en la tabla de progreso."""
+        # Fila elegida.
+        elegidas = self.tabla_progreso.selection()
+        # Si no hay, lo explicamos.
+        if not elegidas:
+            # Aviso.
+            messagebox.showinfo("Elige un tema", "Primero haz clic en un tema de la tabla de progreso.",
+                                parent=self.winfo_toplevel())
+            # Terminamos.
+            return
+        # Tema elegido.
+        tema = elegidas[0]
+        # Confirmación.
+        if not messagebox.askyesno("Olvidar lo pendiente", f"¿Dejar de recuperar lo pendiente de «{tema}»?\n\n"
+                                   "Lo que marques a partir de ahora sí contará.", parent=self.winfo_toplevel()):
+            # No.
+            return
+        # Registro de lo hecho.
+        registro = almacen.cargar_registro()
+        # Olvidamos.
+        progreso.olvidar_pendiente(registro, tema)
+        # Guardamos.
+        almacen.guardar_registro(registro)
+        # Redibujamos.
+        self.app.refrescar_progreso()
+        # Mensaje abajo.
+        self.app.avisar(f"Ya no se recupera lo pendiente de «{tema}».")
+
+
+def texto_plano(texto):
+    """Quita el formato Markdown más común (**negrita**, # títulos, - listas) para mostrarlo en la ventana."""
+    # Líneas resultantes.
+    lineas = []
+    # Cada línea.
+    for linea in texto.splitlines():
+        # Sin espacios a la izquierda, para mirar cómo empieza.
+        limpia = linea.lstrip()
+        # Títulos "# ...": solo el texto.
+        if limpia.startswith("#"):
+            # Sin almohadillas.
+            linea = limpia.lstrip("#").strip()
+        # Listas "- ..." o "* ...": con viñeta.
+        elif limpia.startswith(("- ", "* ")):
+            # Viñeta.
+            linea = "  •  " + limpia[2:]
+        # Sin asteriscos ni guiones bajos dobles de negrita.
+        lineas.append(linea.replace("**", "").replace("__", ""))
+    # Todo junto.
+    return "\n".join(lineas).strip()
+
+
+class PestanaAsistente(ttk.Frame):
+    """Pestaña "Asistente": habla con Claude o Gemini sobre tu estudio (puede cambiar temas, metas y plan)."""
+
+    # Ejemplos de lo que se le puede decir.
+    EJEMPLOS = ["¿Cómo voy esta semana?", "Hoy no pude estudiar", "Tengo un examen el viernes",
+                "Ajusta el plan a lo que de verdad hago"]
+    # Saludo al empezar una conversación.
+    SALUDO = ("Hola. Te ayudo a organizar tus metas y a ajustar el plan a lo que de verdad haces. Cuéntame cómo te "
+              "fue hoy, si tienes algún examen o entrega, o pregúntame cómo vas.")
+
+    def __init__(self, padre, app):
+        # Marco de la pestaña con margen interior.
+        super().__init__(padre, padding=(28, 22))
+        # Referencia a la ventana principal.
+        self.app = app
+        # Conversación en curso (se crea al enviar el primer mensaje).
+        self.conversacion = None
+        # Fila del título y los botones.
+        arriba = ttk.Frame(self)
+        # Ocupa el ancho.
+        arriba.pack(fill="x")
+        # Título.
+        ttk.Label(arriba, text="Asistente", style="Titulo.TLabel").pack(side="left")
+        # Cambiar de IA o de clave.
+        ttk.Button(arriba, text="Cambiar IA o clave", command=self.mostrar_configuracion).pack(side="right")
+        # Empezar de cero.
+        ttk.Button(arriba, text="Nueva conversación", command=self.nueva).pack(side="right", padx=8)
+        # Qué IA se está usando.
+        self.usando = ttk.Label(self, style="Suave.TLabel")
+        # Debajo del título.
+        self.usando.pack(anchor="w", pady=(2, 12))
+        # --- Modo chat ---
+        self.chat = ttk.Frame(self)
+        # Fila para escribir (abajo del todo; se coloca primero para que nunca quede fuera de la vista).
+        fila = ttk.Frame(self.chat)
+        # Abajo.
+        fila.pack(side="bottom", fill="x")
+        # Texto que escribe el usuario.
+        self.entrada = ttk.Entry(fila)
+        # Ocupa casi todo el ancho.
+        self.entrada.pack(side="left", fill="x", expand=True)
+        # Enter envía.
+        self.entrada.bind("<Return>", lambda _evento: self.enviar())
+        # Botón de enviar.
+        self.boton_enviar = ttk.Button(fila, text="Enviar", style="Acento.TButton", command=self.enviar)
+        # A la derecha.
+        self.boton_enviar.pack(side="right", padx=(8, 0))
+        # Fila de ejemplos (encima de la casilla).
+        ejemplos = ttk.Frame(self.chat)
+        # Abajo, sobre la casilla.
+        ejemplos.pack(side="bottom", fill="x", pady=(10, 6))
+        # Texto delante.
+        ttk.Label(ejemplos, text="Prueba:", style="Suave.TLabel").pack(side="left", padx=(0, 6))
+        # Un botón por ejemplo: rellena la casilla.
+        for ejemplo in self.EJEMPLOS:
+            # Botón pequeño.
+            ttk.Button(ejemplos, text=ejemplo, style="Marca.TButton",
+                       command=lambda t=ejemplo: self._usar_ejemplo(t)).pack(side="left", padx=(0, 6))
+        # Marco del texto con su barra (ocupa lo que queda).
+        marco_texto = ttk.Frame(self.chat)
+        # Todo el espacio restante.
+        marco_texto.pack(fill="both", expand=True)
+        # Conversación (solo lectura; height pequeño: crece con la ventana).
+        self.texto = tk.Text(marco_texto, wrap="word", relief="flat", background=COLOR_TARJETA, foreground=COLOR_TEXTO,
+                             font=app.fuentes["normal"], padx=16, pady=12, highlightthickness=1, height=8,
+                             highlightbackground=COLOR_BORDE, state="disabled", spacing3=4)
+        # Barra del texto.
+        barra = ttk.Scrollbar(marco_texto, orient="vertical", command=self.texto.yview)
+        # Unimos el texto con su barra.
+        self.texto.configure(yscrollcommand=barra.set)
+        # Barra a la derecha.
+        barra.pack(side="right", fill="y")
+        # Texto en el resto.
+        self.texto.pack(side="left", fill="both", expand=True)
+        # Estilos del texto: quién habla, mensajes, acciones y errores.
+        self.texto.tag_configure("nombre_tu", font=app.fuentes["negrita"], foreground=COLOR_ACENTO, spacing1=10)
+        # Nombre del asistente.
+        self.texto.tag_configure("nombre_ia", font=app.fuentes["negrita"], foreground=COLOR_BIEN, spacing1=10)
+        # Acciones que hizo el asistente.
+        self.texto.tag_configure("accion", font=app.fuentes["pequena"], foreground=COLOR_SUAVE, lmargin1=14, lmargin2=14)
+        # Errores.
+        self.texto.tag_configure("error", foreground=COLOR_MAL, spacing1=8)
+        # "Pensando…".
+        self.texto.tag_configure("pensando", font=app.fuentes["pequena"], foreground=COLOR_SUAVE, spacing1=6)
+        # --- Modo configuración ---
+        self.ajuste = ttk.Frame(self)
+        # Tarjeta de configuración.
+        marco, contenido = tarjeta(self.ajuste, "Elige la inteligencia artificial y pon tu clave")
+        # Arriba.
+        marco.pack(fill="x")
+        # Explicación (incluye qué datos se envían).
+        ajustar_al_ancho(ttk.Label(contenido, style="Tarjeta.TLabel", justify="left", text=(
+            "El asistente lee tus temas, tu plan, lo que has hecho y tus metas, y puede cambiarlos cuando se lo pidas. "
+            "Lo que escribes aquí y esos datos se envían a la IA que elijas. La clave se guarda solo en este "
+            "ordenador (datos/claves.json)."))).pack(fill="x", pady=(0, 12))
+        # IA elegida.
+        self.proveedor = tk.StringVar(value="gemini")
+        # Opción Gemini.
+        ttk.Radiobutton(contenido, variable=self.proveedor, value="gemini", style="Tarjeta.TRadiobutton",
+                        command=self._al_cambiar_proveedor,
+                        text="Gemini (Google): tiene un nivel gratuito con límites. Clave en aistudio.google.com").pack(
+            anchor="w")
+        # Opción Claude.
+        ttk.Radiobutton(contenido, variable=self.proveedor, value="claude", style="Tarjeta.TRadiobutton",
+                        command=self._al_cambiar_proveedor,
+                        text="Claude (Anthropic): de pago según el uso, con saldo previo. Clave en platform.claude.com").pack(
+            anchor="w", pady=(4, 12))
+        # Título de la clave.
+        ttk.Label(contenido, text="Clave", style="Tarjeta.TLabel").pack(anchor="w")
+        # Clave escrita (se muestra con puntos).
+        self.clave = tk.StringVar()
+        # Casilla de la clave.
+        ttk.Entry(contenido, textvariable=self.clave, show="•").pack(fill="x", pady=(4, 2))
+        # Ayuda sobre la clave.
+        self.ayuda_clave = ttk.Label(contenido, style="TarjetaSuave.TLabel")
+        # Debajo.
+        self.ayuda_clave.pack(anchor="w", pady=(0, 10))
+        # Título del modelo.
+        ttk.Label(contenido, text="Modelo", style="Tarjeta.TLabel").pack(anchor="w")
+        # Modelo escrito.
+        self.modelo = tk.StringVar()
+        # Casilla del modelo.
+        ttk.Entry(contenido, textvariable=self.modelo, width=30).pack(anchor="w", pady=(4, 2))
+        # Ayuda sobre el modelo.
+        ttk.Label(contenido, text="Déjalo como está si no sabes cuál elegir.", style="TarjetaSuave.TLabel").pack(
+            anchor="w", pady=(0, 14))
+        # Fila de botones.
+        botones = ttk.Frame(contenido, style="Tarjeta.TFrame")
+        # Abajo.
+        botones.pack(fill="x")
+        # Guardar.
+        ttk.Button(botones, text="Guardar y empezar", style="Acento.TButton",
+                   command=self.guardar_configuracion).pack(side="left")
+        # Abrir la guía (paso 7).
+        ttk.Button(botones, text="Cómo conseguir la clave",
+                   command=lambda: webbrowser.open(URL_GUIA + "#paso-7-activar-el-asistente-opcional")).pack(
+            side="left", padx=8)
+        # Volver al chat sin cambiar nada.
+        self.boton_volver = ttk.Button(botones, text="Volver al chat", command=self.mostrar_chat)
+        # A la derecha de los demás.
+        self.boton_volver.pack(side="left")
+        # Saludo inicial.
+        self._agregar("Asistente", self.SALUDO, "ia")
+        # Empezamos en modo chat.
+        self.chat.pack(fill="both", expand=True)
+
+    def refrescar(self):
+        """Actualiza qué IA se usa y, si falta la clave, muestra la configuración."""
+        # Ajustes.
+        config = self.app.config_o_defecto()
+        # IA elegida.
+        proveedor = config["asistente"]
+        # ¿Tiene clave?
+        try:
+            # Clave (vacía si no hay).
+            clave = asistente.clave_de(proveedor)
+        # Archivo de claves mal escrito.
+        except almacen.ErrorPlanificador:
+            # Sin clave.
+            clave = ""
+        # Texto con la IA y el modelo.
+        self.usando.configure(text=f"Usando {asistente.NOMBRES[proveedor]} ({config['modelo_' + proveedor]}). "
+                                   "Puede consultar y cambiar tus temas, metas, horario y plan."
+                                   if clave else "Todavía no has elegido una IA ni puesto su clave.")
+        # Sin clave: configuración.
+        if not clave and not self.ajuste.winfo_manager():
+            # La mostramos.
+            self.mostrar_configuracion()
+
+    def mostrar_configuracion(self):
+        """Cambia al modo de configuración, con los valores actuales."""
+        # Ajustes.
+        config = self.app.config_o_defecto()
+        # IA elegida.
+        self.proveedor.set(config["asistente"])
+        # Modelo y ayuda según la IA.
+        self._al_cambiar_proveedor()
+        # Escondemos el chat.
+        self.chat.pack_forget()
+        # Mostramos la configuración.
+        self.ajuste.pack(fill="both", expand=True)
+
+    def mostrar_chat(self):
+        """Vuelve al modo chat."""
+        # Escondemos la configuración.
+        self.ajuste.pack_forget()
+        # Mostramos el chat.
+        self.chat.pack(fill="both", expand=True)
+        # El cursor va a la casilla de escribir.
+        self.entrada.focus_set()
+
+    def _al_cambiar_proveedor(self):
+        """Pone el modelo de la IA elegida y dice si ya tiene clave."""
+        # Ajustes.
+        config = self.app.config_o_defecto()
+        # IA elegida.
+        proveedor = self.proveedor.get()
+        # Su modelo.
+        self.modelo.set(config["modelo_" + proveedor])
+        # ¿Tiene clave?
+        try:
+            # Clave guardada (o vacía).
+            tiene = bool(asistente.clave_de(proveedor))
+        # Archivo de claves mal escrito.
+        except almacen.ErrorPlanificador:
+            # Sin clave.
+            tiene = False
+        # Ayuda.
+        self.ayuda_clave.configure(text="Ya hay una clave guardada: déjalo vacío para conservarla." if tiene else
+                                   "Pega aquí la clave (la guía de inicio, paso 7, explica cómo conseguirla).")
+
+    @con_avisos
+    def guardar_configuracion(self):
+        """Guarda la IA elegida, su modelo y (si se escribió) su clave."""
+        # IA elegida.
+        proveedor = self.proveedor.get()
+        # Clave escrita.
+        clave = self.clave.get().strip()
+        # Sin clave escrita ni guardada no se puede usar.
+        if not clave and not asistente.clave_de(proveedor):
+            # Error para el usuario.
+            raise almacen.ErrorPlanificador(f"Pega tu clave de {asistente.NOMBRES[proveedor]}. "
+                                            "Pulsa «Cómo conseguir la clave» si no la tienes.")
+        # Si se escribió, la guardamos.
+        if clave:
+            # En datos/claves.json.
+            almacen.guardar_clave(proveedor, clave)
+        # Ajustes con la IA y el modelo elegidos.
+        config = {**self.app.config_o_defecto(), "asistente": proveedor,
+                  "modelo_" + proveedor: self.modelo.get().strip() or almacen.CONFIG_POR_DEFECTO["modelo_" + proveedor]}
+        # Los guardamos (aquí se revisan).
+        almacen.guardar_config(config)
+        # Vaciamos la casilla de la clave.
+        self.clave.set("")
+        # La próxima conversación usará la nueva configuración.
+        self.conversacion = None
+        # Actualizamos el texto de arriba.
+        self.refrescar()
+        # Volvemos al chat.
+        self.mostrar_chat()
+        # Lo apuntamos en la conversación.
+        self._agregar("Asistente", f"Listo: ahora hablas con {asistente.NOMBRES[proveedor]}. ¿En qué te ayudo?", "ia")
+
+    def nueva(self):
+        """Empieza una conversación nueva (el asistente olvida esta, pero no sus notas guardadas)."""
+        # Sin conversación.
+        self.conversacion = None
+        # Permitimos editar el texto.
+        self.texto.configure(state="normal")
+        # Lo borramos.
+        self.texto.delete("1.0", "end")
+        # Volvemos a bloquearlo.
+        self.texto.configure(state="disabled")
+        # Saludo.
+        self._agregar("Asistente", self.SALUDO, "ia")
+
+    def _agregar(self, quien, mensaje, etiqueta):
+        """Añade un mensaje a la conversación con el nombre de quien habla."""
+        # Permitimos escribir.
+        self.texto.configure(state="normal")
+        # Nombre.
+        self.texto.insert("end", f"{quien}\n", ("nombre_tu" if etiqueta == "tu" else "nombre_ia",))
+        # Mensaje.
+        self.texto.insert("end", f"{mensaje.strip()}\n", (etiqueta,))
+        # Volvemos a bloquearlo.
+        self.texto.configure(state="disabled")
+        # Bajamos hasta el final.
+        self.texto.see("end")
+
+    def _usar_ejemplo(self, ejemplo):
+        """Pone un ejemplo en la casilla para que el usuario lo complete o lo envíe."""
+        # Vaciamos la casilla.
+        self.entrada.delete(0, "end")
+        # Ponemos el ejemplo.
+        self.entrada.insert(0, ejemplo)
+        # El cursor al final.
+        self.entrada.focus_set()
+
+    def escribir(self, linea):
+        """Apunta una acción del asistente (por ejemplo, «Meta guardada: ...»)."""
+        # Permitimos escribir.
+        self.texto.configure(state="normal")
+        # Línea pequeña en gris.
+        self.texto.insert("end", f"·  {linea}\n", ("accion",))
+        # Volvemos a bloquearlo.
+        self.texto.configure(state="disabled")
+        # Bajamos hasta el final.
+        self.texto.see("end")
+
+    def ocupado(self, si):
+        """Mientras la IA piensa: «Pensando…» y la casilla bloqueada."""
+        # Permitimos escribir en la conversación.
+        self.texto.configure(state="normal")
+        # Si empieza a pensar...
+        if si:
+            # ...lo decimos.
+            self.texto.insert("end", "Pensando…\n", ("pensando",))
+        # Si terminó...
+        else:
+            # ...quitamos el «Pensando…» (de atrás hacia delante para no mover los índices).
+            rangos = self.texto.tag_ranges("pensando")
+            # Cada par (inicio, fin).
+            for posicion in range(len(rangos) - 2, -1, -2):
+                # Lo borramos.
+                self.texto.delete(rangos[posicion], rangos[posicion + 1])
+        # Volvemos a bloquearlo.
+        self.texto.configure(state="disabled")
+        # Bajamos hasta el final.
+        self.texto.see("end")
+        # Casilla y botón bloqueados mientras piensa.
+        for control in (self.entrada, self.boton_enviar):
+            # Estado.
+            control.state(["disabled"] if si else ["!disabled"])
+        # Al terminar, el cursor vuelve a la casilla.
+        if not si:
+            # Foco.
+            self.entrada.focus_set()
+
+    def informar_error(self, texto):
+        """Muestra un error en la conversación (y la configuración, si falta la clave)."""
+        # Mensaje en rojo.
+        self._agregar("Asistente", f"No pude responder: {texto}", "error")
+        # Si falta la clave o es incorrecta, mostramos la configuración.
+        if "clave" in texto.lower():
+            # Configuración.
+            self.mostrar_configuracion()
+
+    def enviar(self):
+        """Envía lo escrito a la IA (en segundo plano) y muestra su respuesta."""
+        # Texto escrito.
+        texto = self.entrada.get().strip()
+        # Si está vacío o la IA está pensando, no hacemos nada.
+        if not texto or "disabled" in self.boton_enviar.state():
+            # Nada.
+            return
+        # Vaciamos la casilla.
+        self.entrada.delete(0, "end")
+        # Mostramos el mensaje del usuario.
+        self._agregar("Tú", texto, "tu")
+        # Conversación actual (None la primera vez).
+        conversacion = self.conversacion
+        # Cola por la que se avisa de cada acción.
+        cola = self.app.cola
+
+        def tarea():
+            # La primera vez se crea la conversación (con la IA y la clave elegidas).
+            actual = conversacion or asistente.crear_conversacion()
+            # Respuesta (cada acción se avisa por la cola, porque aquí no se puede tocar la ventana).
+            return actual, actual.enviar(texto, avisar=lambda linea: cola.put(("registro", self, linea)))
+
+        # En segundo plano, para que la ventana no se congele mientras la IA piensa.
+        self.app.en_segundo_plano(tarea, self._tras_responder, pestana=self, capturar_salida=False)
+
+    def _tras_responder(self, resultado):
+        """Muestra la respuesta y actualiza las demás pestañas (la IA pudo cambiar datos)."""
+        # Conversación (para seguir) y respuesta.
+        self.conversacion, respuesta = resultado
+        # Mostramos la respuesta sin formato Markdown.
+        self._agregar("Asistente", texto_plano(respuesta), "ia")
+        # Redibujamos lo demás.
+        self.app.refrescar_todo(salvo=self)
+
+
 class PestanaGoogle(ttk.Frame):
     """Pestaña "Google Calendar": estado de la conexión, subir el plan y borrar sesiones."""
 
@@ -1079,6 +1890,13 @@ class PestanaGoogle(ttk.Frame):
         self.registro.see("end")
         # Volvemos a bloquearlo para que no se edite a mano.
         self.registro.configure(state="disabled")
+
+    def informar_error(self, texto):
+        """Muestra un error de Google: en el registro y en una ventanita."""
+        # En el registro.
+        self.escribir(f"Error: {texto}")
+        # Ventanita.
+        messagebox.showerror("No se pudo completar", texto, parent=self.winfo_toplevel())
 
     def ocupado(self, si):
         """Bloquea los botones y mueve la barra mientras se habla con Google."""
@@ -1372,6 +2190,13 @@ class PestanaAjustes(ttk.Frame):
         # Explicación.
         ttk.Label(izquierda, text="«primary» es tu calendario principal (ver README, sección 7)",
                   style="TarjetaSuave.TLabel").grid(row=len(CAMPOS_NUMERICOS) * 2 + 1, column=0, columnspan=2, sticky="w")
+        # ¿Recuperar lo no hecho?
+        self.recuperar = tk.BooleanVar()
+        # Casilla de marcar (la clásica: en Windows se marca con ✓).
+        tk.Checkbutton(izquierda, text="Recuperar en el próximo plan las sesiones que no hice", variable=self.recuperar,
+                       font=app.fuentes["normal"], background=COLOR_TARJETA, activebackground=COLOR_TARJETA,
+                       foreground=COLOR_TEXTO, highlightthickness=0, borderwidth=0, anchor="w").grid(
+            row=len(CAMPOS_NUMERICOS) * 2 + 2, column=0, columnspan=2, sticky="w", pady=(12, 0))
         # Tarjeta derecha: días y horas.
         marco_derecha, derecha = tarjeta(columnas, "Días y hora de inicio")
         # A la derecha.
@@ -1415,6 +2240,8 @@ class PestanaAjustes(ttk.Frame):
             variable.set(str(config[clave]))
         # Calendario.
         self.calendario.set(config["id_calendario"])
+        # Recuperar lo no hecho.
+        self.recuperar.set(config["recuperar_no_hechas"])
         # Días y horas.
         for interno, (marcado, hora, casilla) in self.dias.items():
             # ¿Está ese día en el horario?
@@ -1457,8 +2284,8 @@ class PestanaAjustes(ttk.Frame):
     @con_avisos
     def guardar(self):
         """Revisa los valores de las casillas y los guarda en config.json."""
-        # Aquí armamos la configuración nueva.
-        datos = {}
+        # Partimos de los ajustes guardados, para conservar los que no están en esta pestaña (el asistente).
+        datos = dict(self.app.config_o_defecto())
         # Ajustes numéricos.
         for clave, titulo, *_resto in CAMPOS_NUMERICOS:
             # Convertimos el texto a número.
@@ -1471,6 +2298,8 @@ class PestanaAjustes(ttk.Frame):
                 raise almacen.ErrorPlanificador(f"«{titulo}» tiene que ser un número entero.") from error
         # Calendario.
         datos["id_calendario"] = self.calendario.get().strip()
+        # Recuperar lo no hecho.
+        datos["recuperar_no_hechas"] = bool(self.recuperar.get())
         # Horario: solo los días marcados.
         datos["horario"] = {interno: hora.get().strip() for interno, (marcado, hora, _c) in self.dias.items()
                             if marcado.get()}
@@ -1516,8 +2345,8 @@ class Aplicacion(tk.Tk):
         self.plan = None
         # True cuando cambiaron temas o ajustes y conviene volver a generar el plan.
         self.plan_desactualizado = False
-        # True mientras se habla con Google.
-        self.ocupado = False
+        # Tareas en segundo plano en marcha (hablando con Google o con la IA).
+        self.tareas = 0
         # Cola por la que llegan los resultados de las tareas en segundo plano.
         self.cola = queue.Queue()
         # Identificadores de las tareas programadas (para cancelarlas al cerrar).
@@ -1597,6 +2426,17 @@ class Aplicacion(tk.Tk):
         estilo.configure("Suave.TLabel", foreground=COLOR_SUAVE)
         # Avisos.
         estilo.configure("Aviso.TLabel", foreground=COLOR_AVISO)
+        # Información (por ejemplo, cómo se adaptó el plan).
+        estilo.configure("Info.TLabel", foreground="#1a4f9c")
+        # Texto grande dentro de tarjetas (la racha).
+        estilo.configure("RachaTarjeta.TLabel", background=COLOR_TARJETA, foreground=COLOR_TEXTO,
+                         font=self.fuentes["subtitulo"])
+        # Opciones a elegir dentro de tarjetas.
+        estilo.configure("Tarjeta.TRadiobutton", background=COLOR_TARJETA, foreground=COLOR_TEXTO,
+                         indicatorbackground=COLOR_TARJETA)
+        # Al pasar el ratón, sin cambiar el fondo.
+        estilo.map("Tarjeta.TRadiobutton", background=[("active", COLOR_TARJETA)],
+                   indicatorbackground=[("selected", COLOR_ACENTO)])
         # Textos dentro de tarjetas.
         estilo.configure("Tarjeta.TLabel", background=COLOR_TARJETA)
         # Textos secundarios dentro de tarjetas.
@@ -1622,6 +2462,22 @@ class Aplicacion(tk.Tk):
                    foreground=[("disabled", "white")], bordercolor=[("disabled", "#a8c7fa")],
                    lightcolor=[("disabled", "#a8c7fa"), ("active", COLOR_ACENTO_OSCURO)],
                    darkcolor=[("disabled", "#a8c7fa"), ("active", COLOR_ACENTO_OSCURO)])
+        # Botones pequeños para marcar sesiones y para los ejemplos del asistente.
+        estilo.configure("Marca.TButton", padding=(10, 4), font=self.fuentes["pequena"])
+        # Botón «Hecha» marcado: verde.
+        estilo.configure("MarcaHecha.TButton", padding=(10, 4), font=self.fuentes["pequena_negrita"],
+                         background=COLOR_BIEN, foreground="white", bordercolor=COLOR_BIEN, lightcolor=COLOR_BIEN,
+                         darkcolor=COLOR_BIEN)
+        # Al pasar el ratón, verde más oscuro.
+        estilo.map("MarcaHecha.TButton", background=[("active", "#0d652d")], lightcolor=[("active", "#0d652d")],
+                   darkcolor=[("active", "#0d652d")])
+        # Botón «No la hice» marcado: rojo.
+        estilo.configure("MarcaNo.TButton", padding=(10, 4), font=self.fuentes["pequena_negrita"],
+                         background=COLOR_MAL, foreground="white", bordercolor=COLOR_MAL, lightcolor=COLOR_MAL,
+                         darkcolor=COLOR_MAL)
+        # Al pasar el ratón, rojo más oscuro.
+        estilo.map("MarcaNo.TButton", background=[("active", "#a50e0e")], lightcolor=[("active", "#a50e0e")],
+                   darkcolor=[("active", "#a50e0e")])
         # Botón de borrar: letra roja.
         estilo.configure("Peligro.TButton", foreground=COLOR_MAL)
         # Botón de borrar al pasar el ratón.
@@ -1702,13 +2558,18 @@ class Aplicacion(tk.Tk):
         self.pestana_semana = PestanaSemana(self.cuaderno, self)
         # Pestaña Temas.
         self.pestana_temas = PestanaTemas(self.cuaderno, self)
+        # Pestaña Metas y progreso.
+        self.pestana_metas = PestanaMetas(self.cuaderno, self)
+        # Pestaña Asistente.
+        self.pestana_asistente = PestanaAsistente(self.cuaderno, self)
         # Pestaña Google Calendar.
         self.pestana_google = PestanaGoogle(self.cuaderno, self)
         # Pestaña Ajustes.
         self.pestana_ajustes = PestanaAjustes(self.cuaderno, self)
         # Añadimos las pestañas en orden, con su título.
         for pestana, titulo in ((self.pestana_hoy, "Hoy"), (self.pestana_semana, "Semana"),
-                                (self.pestana_temas, "Temas"), (self.pestana_google, "Google Calendar"),
+                                (self.pestana_temas, "Temas"), (self.pestana_metas, "Metas"),
+                                (self.pestana_asistente, "Asistente"), (self.pestana_google, "Google Calendar"),
                                 (self.pestana_ajustes, "Ajustes")):
             # Añadimos la pestaña.
             self.cuaderno.add(pestana, text=titulo)
@@ -1734,13 +2595,46 @@ class Aplicacion(tk.Tk):
             # Aviso abajo.
             self.avisar(str(error), error=True)
 
+    def registro(self):
+        """Sesiones hechas y no hechas (vacío, avisando, si el archivo está mal)."""
+        # Intentamos leerlo.
+        try:
+            # Registro.
+            return almacen.cargar_registro()
+        # Archivo mal escrito.
+        except almacen.ErrorPlanificador as error:
+            # Aviso abajo.
+            self.avisar(str(error), error=True)
+            # Registro vacío.
+            return {"sesiones": {}, "perdonado": {}}
+
+    def config_o_defecto(self):
+        """Ajustes guardados (o los de fábrica, si config.json está mal escrito)."""
+        # Intentamos leerlos.
+        try:
+            # Ajustes.
+            return almacen.cargar_config()
+        # Archivo mal escrito.
+        except almacen.ErrorPlanificador:
+            # Valores de fábrica.
+            return copy.deepcopy(almacen.CONFIG_POR_DEFECTO)
+
+    def refrescar_progreso(self):
+        """Redibuja lo que depende de las sesiones marcadas: Hoy, Semana, Metas y la cabecera."""
+        # Cada pestaña.
+        for pestana in (self.pestana_hoy, self.pestana_semana, self.pestana_metas):
+            # La redibujamos.
+            pestana.refrescar()
+        # Cabecera.
+        self._actualizar_cabecera()
+
     def refrescar_todo(self, salvo=None):
         """Vuelve a leer el plan y redibuja todas las pestañas (menos `salvo`, si se indica)."""
         # Releemos el plan del disco.
         self.leer_plan()
         # Redibujamos cada pestaña.
-        for pestana in (self.pestana_hoy, self.pestana_semana, self.pestana_temas, self.pestana_google,
-                        self.pestana_ajustes):
+        for pestana in (self.pestana_hoy, self.pestana_semana, self.pestana_temas, self.pestana_metas,
+                        self.pestana_asistente, self.pestana_google, self.pestana_ajustes):
             # Saltamos la indicada (por ejemplo, Ajustes justo después de guardar).
             if pestana is not salvo:
                 # La redibujamos.
@@ -1790,32 +2684,51 @@ class Aplicacion(tk.Tk):
         # El mensaje se borra a los 12 segundos (los errores, a los 30).
         self._borrar_aviso = self.after(30_000 if error else 12_000, lambda: self.barra_avisos.configure(text=""))
 
-    def en_segundo_plano(self, tarea, al_terminar):
-        """Ejecuta `tarea` sin congelar la ventana y, cuando acaba, llama a `al_terminar(resultado)`."""
-        # Marcamos la ventana como ocupada.
-        self.ocupado = True
-        # Bloqueamos los botones de Google.
-        self.pestana_google.ocupado(True)
+    @property
+    def ocupado(self):
+        """True mientras haya alguna tarea en segundo plano (hablando con Google o con la IA)."""
+        # Hay tareas en marcha.
+        return self.tareas > 0
+
+    def en_segundo_plano(self, tarea, al_terminar, pestana=None, capturar_salida=True):
+        """Ejecuta `tarea` sin congelar la ventana y, cuando acaba, llama a `al_terminar(resultado)`.
+
+        `pestana` (por defecto, Google Calendar) es la que se bloquea mientras tanto y la que muestra lo que pasa.
+        Con `capturar_salida`, lo que imprima la tarea (por ejemplo, la dirección para dar permiso a Google)
+        se apunta en esa pestaña.
+        """
+        # Pestaña que espera el resultado.
+        pestana = pestana or self.pestana_google
+        # Una tarea más en marcha.
+        self.tareas += 1
+        # Bloqueamos sus botones.
+        pestana.ocupado(True)
 
         def trabajar():
-            # Lo que imprima Google (por ejemplo, la dirección para dar permiso) va al registro.
+            # Hacemos la tarea.
             try:
-                # Desviamos print() hacia la cola.
-                with redirect_stdout(EscritorCola(self.cola)):
-                    # Hacemos la tarea.
+                # Si se pidió, desviamos print() hacia la pestaña.
+                if capturar_salida:
+                    # Con la salida desviada.
+                    with redirect_stdout(EscritorCola(self.cola, pestana)):
+                        # Tarea.
+                        resultado = tarea()
+                # Si no, tal cual.
+                else:
+                    # Tarea.
                     resultado = tarea()
             # Errores pensados para el usuario.
             except almacen.ErrorPlanificador as error:
                 # Los mandamos a la ventana.
-                self.cola.put(("error", str(error)))
+                self.cola.put(("error", pestana, str(error)))
             # Cualquier otro error (no debería pasar).
             except Exception:  # noqa: BLE001 - lo mostramos en la ventana en vez de perderlo.
                 # Mandamos el detalle técnico a la ventana.
-                self.cola.put(("fallo", traceback.format_exc()))
+                self.cola.put(("fallo", pestana, traceback.format_exc()))
             # Si todo fue bien...
             else:
                 # ...mandamos el resultado.
-                self.cola.put(("listo", al_terminar, resultado))
+                self.cola.put(("listo", pestana, al_terminar, resultado))
 
         # daemon=True: si cierras la ventana, la tarea no impide que el programa termine.
         threading.Thread(target=trabajar, daemon=True).start()
@@ -1843,30 +2756,30 @@ class Aplicacion(tk.Tk):
             except queue.Empty:
                 # Terminamos.
                 return
-            # Una línea para el registro.
-            if mensaje[0] == "registro":
+            # Tipo de mensaje y pestaña a la que va.
+            tipo, pestana = mensaje[0], mensaje[1]
+            # Una línea para la pestaña (registro de Google o acción del asistente).
+            if tipo == "registro":
                 # La escribimos.
-                self.pestana_google.escribir(mensaje[1])
+                pestana.escribir(mensaje[2])
                 # Siguiente mensaje.
                 continue
             # Cualquier otro mensaje significa que la tarea terminó.
-            self.ocupado = False
-            # Desbloqueamos los botones.
-            self.pestana_google.ocupado(False)
+            self.tareas -= 1
+            # Desbloqueamos los botones de esa pestaña.
+            pestana.ocupado(False)
             # Terminó bien: seguimos con lo que había que hacer después.
-            if mensaje[0] == "listo":
+            if tipo == "listo":
                 # Llamamos a la función con el resultado.
-                mensaje[1](mensaje[2])
-            # Error pensado para el usuario.
-            elif mensaje[0] == "error":
-                # Lo apuntamos en el registro.
-                self.pestana_google.escribir(f"Error: {mensaje[1]}")
-                # Y lo mostramos.
-                messagebox.showerror("No se pudo completar", mensaje[1], parent=self)
+                mensaje[2](mensaje[3])
+            # Error pensado para el usuario: lo muestra la pestaña.
+            elif tipo == "error":
+                # A su manera.
+                pestana.informar_error(mensaje[2])
             # Error inesperado.
             else:
                 # Lo mostramos con el detalle técnico.
-                self._mostrar_fallo(mensaje[1])
+                self._mostrar_fallo(mensaje[2])
 
     def _cada_minuto(self):
         """Actualiza la pestaña Hoy y la cabecera (para que "Ahora" y "Siguiente" estén al día)."""
@@ -1881,8 +2794,8 @@ class Aplicacion(tk.Tk):
         """Actualiza la pestaña que se acaba de abrir."""
         # Pestaña elegida.
         elegida = self.nametowidget(self.cuaderno.select())
-        # Hoy y Google dependen de la hora o de archivos que pueden cambiar fuera de la ventana.
-        if elegida in (self.pestana_hoy, self.pestana_google):
+        # Estas dependen de la hora o de archivos que pueden cambiar fuera de la ventana.
+        if elegida in (self.pestana_hoy, self.pestana_metas, self.pestana_google):
             # La redibujamos.
             elegida.refrescar()
 
@@ -1937,7 +2850,8 @@ class Aplicacion(tk.Tk):
         """Cierra la ventana (preguntando antes si hay una tarea a medias)."""
         # Si se está hablando con Google, preguntamos.
         if self.ocupado and not messagebox.askyesno(
-                "Hay una tarea en curso", "Todavía se está hablando con Google Calendar. ¿Cerrar igualmente?",
+                "Hay una tarea en curso", "Todavía se está hablando con Google Calendar o con el asistente. "
+                                          "¿Cerrar igualmente?",
                 parent=self):
             # Si dice que no, no cerramos.
             return

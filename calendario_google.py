@@ -243,12 +243,14 @@ def evento_desde_sesion(sesion, aviso_minutos):
     """Convierte una sesión en el formato de evento que espera Google Calendar."""
     # Armamos el evento como un diccionario.
     return {
-        # Título del evento, por ejemplo "Estudiar: Matemáticas (2/5)".
-        "summary": f"Estudiar: {sesion.tema} ({sesion.numero}/{sesion.total})",
+        # Título del evento, por ejemplo "Estudiar: Matemáticas (2/5)" (y "· recuperación" si lo es).
+        "summary": f"Estudiar: {sesion.tema} ({sesion.numero}/{sesion.total})"
+                   f"{' · recuperación' if sesion.recuperacion else ''}",
         # Descripción con algo de contexto.
         "description": (
             f"Sesión corta de {sesion.minutos} minutos.\n"
             f"Prioridad del tema: {sesion.prioridad} de 5.\n"
+            f"{'Sirve para recuperar una sesión que no hiciste.' + chr(10) if sesion.recuperacion else ''}"
             "Creada por el planificador de estudio."
         ),
         # Hora de inicio con zona horaria.
