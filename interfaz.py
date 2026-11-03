@@ -27,6 +27,8 @@ import webbrowser
 from contextlib import redirect_stdout
 # Herramientas de fechas.
 from datetime import date, datetime, timedelta
+# Path encuentra la carpeta de imágenes junto al programa.
+from pathlib import Path
 
 # tkinter es la librería de ventanas que trae Python.
 import tkinter as tk
@@ -56,29 +58,49 @@ from progreso import minutos_a_texto
 URL_GUIA = "https://github.com/emi0000000/study-planner/blob/main/GUIA_DE_INICIO.md"
 
 # Color de fondo de la ventana.
-COLOR_FONDO = "#f4f6fb"
+COLOR_FONDO = "#f5f6fb"
 # Color de fondo de las tarjetas.
 COLOR_TARJETA = "#ffffff"
 # Color del texto normal.
-COLOR_TEXTO = "#1f2933"
+COLOR_TEXTO = "#1e2235"
 # Color del texto secundario (explicaciones, fechas).
-COLOR_SUAVE = "#667085"
+COLOR_SUAVE = "#6b7086"
 # Color de los bordes.
-COLOR_BORDE = "#dde2ec"
-# Azul de los botones principales.
-COLOR_ACENTO = "#1a73e8"
-# Azul más oscuro (botón principal al pasar el ratón).
-COLOR_ACENTO_OSCURO = "#1557b0"
-# Fondo azul muy claro (filas seleccionadas, botones al pasar el ratón).
-COLOR_ACENTO_SUAVE = "#e8f0fe"
+COLOR_BORDE = "#e2e5ef"
+# Índigo de los botones principales (el color del logo).
+COLOR_ACENTO = "#4f46e5"
+# Índigo más oscuro (botón principal al pasar el ratón).
+COLOR_ACENTO_OSCURO = "#4338ca"
+# Fondo índigo muy claro (filas seleccionadas, botones al pasar el ratón).
+COLOR_ACENTO_SUAVE = "#eef2ff"
 # Naranja oscuro para avisos.
 COLOR_AVISO = "#b45309"
 # Verde para lo que está bien.
-COLOR_BIEN = "#188038"
+COLOR_BIEN = "#15803d"
 # Rojo para errores y para borrar.
-COLOR_MAL = "#c5221f"
+COLOR_MAL = "#dc2626"
 # Gris para las sesiones que ya pasaron.
-COLOR_PASADO = "#eef0f3"
+COLOR_PASADO = "#f1f2f7"
+# Barra lateral: fondo índigo oscuro.
+COLOR_LATERAL = "#1e1b4b"
+# Barra lateral: fila al pasar el ratón.
+COLOR_LATERAL_ENCIMA = "#2b2770"
+# Barra lateral: fila elegida.
+COLOR_LATERAL_ACTIVO = "#3730a3"
+# Barra lateral: texto normal.
+COLOR_LATERAL_TEXTO = "#c7d2fe"
+# Barra lateral: texto secundario.
+COLOR_LATERAL_SUAVE = "#8b93d6"
+# Ámbar (el reloj del logo): marca de la sección elegida.
+COLOR_AMBAR = "#f59e0b"
+
+# Carpeta con el logo y los iconos.
+CARPETA_RECURSOS = Path(__file__).resolve().parent / "recursos"
+# Secciones de la barra lateral: (nombre del icono, texto, atributo de la pestaña).
+SECCIONES = [("hoy", "Hoy", "pestana_hoy"), ("semana", "Semana", "pestana_semana"),
+             ("temas", "Temas", "pestana_temas"), ("metas", "Metas", "pestana_metas"),
+             ("asistente", "Asistente", "pestana_asistente"), ("google", "Google Calendar", "pestana_google"),
+             ("ajustes", "Ajustes", "pestana_ajustes")]
 
 # Colores por prioridad: (color fuerte para la franja, color suave para el fondo). Son los de Google Calendar.
 COLORES_PRIORIDAD = {
@@ -320,7 +342,7 @@ def botones_marcar(padre, marca, al_marcar, fondo):
 
 
 def tarjeta_sesion(padre, sesion, fuentes, estado="", marca=None, al_marcar=None):
-    """Crea la tarjeta de una sesión para la pestaña Hoy.
+    """Crea la tarjeta de una sesión para la sección Hoy.
 
     `estado` (según la hora) puede ser "ahora", "siguiente" o "pasada"; `marca` es "hecha", "no_hecha" o None;
     con `al_marcar`, la tarjeta lleva los botones «Hecha» y «No la hice».
@@ -345,17 +367,23 @@ def tarjeta_sesion(padre, sesion, fuentes, estado="", marca=None, al_marcar=None
              foreground=texto, justify="center").pack(side="left", padx=(16, 18), pady=12)
     # Etiqueta de estado a la derecha (si la hay): texto y color.
     etiquetas = {"ahora": ("Ahora", COLOR_ACENTO), "siguiente": ("Siguiente", COLOR_BIEN), "pasada": ("Ya pasó", "#9aa0a6")}
-    # Si la sesión tiene estado, mostramos su etiqueta (a la derecha del todo).
+    # Hueco de ancho fijo para la etiqueta (aunque no haya), para que los botones de todas las tarjetas queden alineados.
+    hueco = tk.Frame(marco, background=fondo, width=fuentes["pequena_negrita"].measure("Siguiente") + 36)
+    # A la derecha del todo.
+    hueco.pack(side="right", fill="y", padx=(0, 12))
+    # El hueco no cambia de tamaño con lo que lleva dentro.
+    hueco.pack_propagate(False)
+    # Si la sesión tiene estado, mostramos su etiqueta dentro del hueco.
     if estado in etiquetas:
         # Texto y color de la etiqueta.
         rotulo, color = etiquetas[estado]
-        # Etiqueta tipo "píldora".
-        tk.Label(marco, text=rotulo, font=fuentes["pequena_negrita"], background=color, foreground="white",
-                 padx=10, pady=3).pack(side="right", padx=16)
+        # Etiqueta tipo "píldora", centrada en vertical.
+        tk.Label(hueco, text=rotulo, font=fuentes["pequena_negrita"], background=color, foreground="white",
+                 padx=10, pady=3).pack(side="right", expand=True)
     # Botones para marcarla (a la izquierda de la etiqueta).
     if al_marcar:
         # Los colocamos.
-        botones_marcar(marco, marca, al_marcar, fondo).pack(side="right", padx=(8, 0 if estado in etiquetas else 16))
+        botones_marcar(marco, marca, al_marcar, fondo).pack(side="right", padx=(8, 0))
     # Parte central con el tema y los detalles.
     centro = tk.Frame(marco, background=fondo)
     # Ocupa el espacio que sobra.
@@ -377,7 +405,7 @@ def tarjeta_sesion(padre, sesion, fuentes, estado="", marca=None, al_marcar=None
 
 
 class PestanaHoy(ttk.Frame):
-    """Pestaña "Hoy": las sesiones del día, para marcarlas como hechas o no hechas."""
+    """Sección "Hoy": las sesiones del día, para marcarlas como hechas o no hechas."""
 
     def __init__(self, padre, app):
         # Marco de la pestaña con margen interior.
@@ -398,7 +426,7 @@ class PestanaHoy(ttk.Frame):
         self.lista.pack(fill="both", expand=True)
 
     def refrescar(self):
-        """Vuelve a dibujar la pestaña con la hora actual (sin perder hasta dónde se había bajado)."""
+        """Vuelve a dibujar la sección con la hora actual (sin perder hasta dónde se había bajado)."""
         # Fecha y hora de este momento.
         ahora = datetime.now()
         # Fecha de hoy.
@@ -413,7 +441,7 @@ class PestanaHoy(ttk.Frame):
         if plan is None:
             # Explicamos qué hacer.
             self._mensaje("Todavía no hay un plan de estudio.",
-                          "Agrega tus temas en la pestaña Temas y luego pulsa «Generar plan» en la pestaña Semana.",
+                          "Agrega tus temas en la sección Temas y luego pulsa «Generar plan» en la sección Semana.",
                           ("Ir a Temas", self.app.pestana_temas))
             # Terminamos.
             return
@@ -424,7 +452,7 @@ class PestanaHoy(ttk.Frame):
             # Explicamos qué hacer.
             self._mensaje("El plan guardado no incluye hoy.",
                           f"Va del {fecha_corta(plan['desde'])} al {fecha_corta(plan['hasta'])}. "
-                          "Genera uno nuevo en la pestaña Semana.",
+                          "Genera uno nuevo en la sección Semana.",
                           ("Ir a Semana", self.app.pestana_semana))
         # Hoy sí está en el plan.
         else:
@@ -535,7 +563,7 @@ class PestanaHoy(ttk.Frame):
         self.app.avisar(f"{texto}: {sesion.tema}, {fecha_corta(sesion.inicio.date())} a las {sesion.inicio:%H:%M}.")
 
     def _mensaje(self, titulo, detalle, boton=None):
-        """Muestra un mensaje grande en lugar de la lista (y, si se indica, un botón para ir a otra pestaña)."""
+        """Muestra un mensaje grande en lugar de la lista (y, si se indica, un botón para ir a otra sección)."""
         # Sin subtítulo.
         self.subtitulo.configure(text="")
         # Marco blanco para el mensaje.
@@ -561,7 +589,7 @@ class PestanaHoy(ttk.Frame):
 
 
 class PestanaSemana(ttk.Frame):
-    """Pestaña "Semana": genera el plan y lo muestra día por día."""
+    """Sección "Semana": genera el plan y lo muestra día por día."""
 
     def __init__(self, padre, app):
         # Marco de la pestaña con margen interior.
@@ -651,7 +679,7 @@ class PestanaSemana(ttk.Frame):
         # Sin temas no hay nada que planificar.
         if not almacen.cargar_temas():
             # Explicamos qué hacer.
-            messagebox.showinfo("Primero agrega temas", "Todavía no hay temas. Agrégalos en la pestaña Temas.",
+            messagebox.showinfo("Primero agrega temas", "Todavía no hay temas. Agrégalos en la sección Temas.",
                                 parent=self.winfo_toplevel())
             # Llevamos al usuario a esa pestaña.
             self.app.cuaderno.select(self.app.pestana_temas)
@@ -669,7 +697,7 @@ class PestanaSemana(ttk.Frame):
         self.app.refrescar_todo()
         # Mensaje en la barra de abajo.
         self.app.avisar(f"Plan generado: {len(plan['sesiones'])} sesiones del {fecha_corta(plan['desde'])} al "
-                        f"{fecha_corta(plan['hasta'])}. Para recibir los avisos, súbelo en la pestaña Google Calendar.")
+                        f"{fecha_corta(plan['hasta'])}. Para recibir los avisos, súbelo en la sección Google Calendar.")
 
     def refrescar(self):
         """Vuelve a dibujar la semana con el plan actual."""
@@ -712,7 +740,7 @@ class PestanaSemana(ttk.Frame):
             # Aviso con el consejo.
             avisos.append(f"No entraron {len(plan['sin_lugar'])} sesiones ({minutos_a_texto(faltan)}) porque no caben en "
                           "tus días de estudio. Para que entren: sube el máximo diario, agrega días o empieza más "
-                          "temprano (pestaña Ajustes), o baja los minutos de algún tema.")
+                          "temprano (sección Ajustes), o baja los minutos de algún tema.")
         # Mostramos las notas y los avisos.
         self._mostrar_textos(plan.get("notas", []), avisos)
         # Dibujamos los 7 días.
@@ -829,7 +857,7 @@ class PestanaSemana(ttk.Frame):
 
 
 class PestanaTemas(ttk.Frame):
-    """Pestaña "Temas": lista de temas y formulario para agregarlos, cambiarlos o quitarlos."""
+    """Sección "Temas": lista de temas y formulario para agregarlos, cambiarlos o quitarlos."""
 
     def __init__(self, padre, app):
         # Marco de la pestaña con margen interior.
@@ -1051,7 +1079,7 @@ class PestanaTemas(ttk.Frame):
         self.tabla.selection_set(nombre)
         # Mensaje abajo.
         self.app.avisar(f"{'Agregado' if es_nuevo else 'Actualizado'}: «{nombre}». "
-                        "Cuando termines, pulsa «Generar plan» en la pestaña Semana.")
+                        "Cuando termines, pulsa «Generar plan» en la sección Semana.")
 
     def nuevo(self):
         """Vacía el formulario para escribir un tema nuevo."""
@@ -1097,11 +1125,11 @@ class PestanaTemas(ttk.Frame):
         # Redibujamos.
         self.app.refrescar_todo()
         # Mensaje abajo.
-        self.app.avisar(f"Quitado: «{nombre}». Pulsa «Generar plan» en la pestaña Semana para actualizar el plan.")
+        self.app.avisar(f"Quitado: «{nombre}». Pulsa «Generar plan» en la sección Semana para actualizar el plan.")
 
 
 class PestanaMetas(ttk.Frame):
-    """Pestaña "Metas": tus metas (exámenes, entregas...) y tu progreso de los últimos 14 días."""
+    """Sección "Metas": tus metas (exámenes, entregas...) y tu progreso de los últimos 14 días."""
 
     def __init__(self, padre, app):
         # Marco de la pestaña con margen interior.
@@ -1118,8 +1146,10 @@ class PestanaMetas(ttk.Frame):
         cuerpo = ttk.Frame(self)
         # Ocupa el resto de la pestaña.
         cuerpo.pack(fill="both", expand=True)
-        # Las dos columnas crecen igual.
-        cuerpo.columnconfigure((0, 1), weight=1, uniform="metas")
+        # Columnas proporcionales: un poco más de sitio para el progreso (su tabla tiene más columnas).
+        cuerpo.columnconfigure(0, weight=9, uniform="metas")
+        # Columna del progreso.
+        cuerpo.columnconfigure(1, weight=11, uniform="metas")
         # La fila crece hacia abajo.
         cuerpo.rowconfigure(0, weight=1)
         # Tarjeta izquierda: las metas.
@@ -1162,9 +1192,10 @@ class PestanaMetas(ttk.Frame):
         self.fecha = tk.StringVar()
         # Casilla de la fecha.
         ttk.Entry(fila, textvariable=self.fecha, width=11).pack(side="left", padx=(6, 0))
-        # Ayuda del formato.
-        ttk.Label(formulario, text="Fecha como AAAA-MM-DD (por ejemplo 2026-11-13). Tema y fecha son opcionales.",
-                  style="TarjetaSuave.TLabel").pack(anchor="w", pady=(4, 0))
+        # Ayuda del formato (pasa a otra línea si no cabe).
+        ajustar_al_ancho(ttk.Label(formulario, style="TarjetaSuave.TLabel", justify="left",
+                                   text="Fecha como AAAA-MM-DD (por ejemplo 2026-11-13). Tema y fecha son opcionales.")
+                         ).pack(fill="x", pady=(4, 0))
         # Separador encima del formulario.
         ttk.Separator(metas).pack(side="bottom", fill="x", pady=12)
         # Botones para la meta elegida (encima del separador).
@@ -1179,8 +1210,8 @@ class PestanaMetas(ttk.Frame):
         self.tabla = ttk.Treeview(metas, columns=("meta", "tema", "fecha", "estado"), show="headings", height=5,
                                   selectmode="browse")
         # Títulos y anchos de las columnas.
-        for columna, titulo, ancho in (("meta", "Meta", 180), ("tema", "Tema", 100), ("fecha", "Fecha", 95),
-                                       ("estado", "Estado", 110)):
+        for columna, titulo, ancho in (("meta", "Meta", 160), ("tema", "Tema", 90), ("fecha", "Fecha", 90),
+                                       ("estado", "Estado", 85)):
             # Título.
             self.tabla.heading(columna, text=titulo, anchor="w")
             # Ancho.
@@ -1266,8 +1297,7 @@ class PestanaMetas(ttk.Frame):
             # Fila; su identificador es el número de la meta.
             self.tabla.insert("", "end", iid=str(meta["id"]), tags=(etiqueta,), values=(
                 meta["texto"], meta.get("tema") or "—", f"{fecha:%d/%m/%Y}" if fecha else "—",
-                "Cumplida" if meta.get("cumplida") else (f"Faltan {(fecha - ahora.date()).days} días"
-                                                         if fecha and fecha >= ahora.date() else "Pendiente")))
+                self._texto_estado(meta, fecha, ahora.date())))
         # Progreso de los últimos días.
         datos = progreso.resumen(self.app.registro(), self.app.plan, temas, ahora)
         # Racha.
@@ -1295,6 +1325,22 @@ class PestanaMetas(ttk.Frame):
                 # Selección.
                 tabla.selection_set(existentes)
 
+    @staticmethod
+    def _texto_estado(meta, fecha, hoy):
+        """Estado corto de una meta: «Cumplida», «Hoy», «Mañana», «En 5 días», «Pasó» o «Pendiente»."""
+        # Cumplida.
+        if meta.get("cumplida"):
+            # Texto.
+            return "Cumplida"
+        # Sin fecha.
+        if fecha is None:
+            # Texto.
+            return "Pendiente"
+        # Días que faltan.
+        faltan = (fecha - hoy).days
+        # Según los días.
+        return {0: "Hoy", 1: "Mañana"}.get(faltan, f"En {faltan} días" if faltan > 1 else "Pasó")
+
     @con_avisos
     def guardar(self):
         """Guarda la meta escrita en el formulario."""
@@ -1319,7 +1365,7 @@ class PestanaMetas(ttk.Frame):
         self.app.refrescar_todo()
         # Mensaje abajo.
         self.app.avisar(f"Meta guardada: {progreso.texto_meta(meta)}."
-                        f"{' Pulsa «Generar plan» en la pestaña Semana para adaptar el plan.' if self.app.plan_desactualizado else ''}")
+                        f"{' Pulsa «Generar plan» en la sección Semana para adaptar el plan.' if self.app.plan_desactualizado else ''}")
 
     def _meta_elegida(self):
         """Número de la meta elegida en la tabla, o None (avisando) si no hay ninguna."""
@@ -1434,7 +1480,7 @@ def texto_plano(texto):
 
 
 class PestanaAsistente(ttk.Frame):
-    """Pestaña "Asistente": habla con Claude o Gemini sobre tu estudio (puede cambiar temas, metas y plan)."""
+    """Sección "Asistente": habla con Claude o Gemini sobre tu estudio (puede cambiar temas, metas y plan)."""
 
     # Ejemplos de lo que se le puede decir.
     EJEMPLOS = ["¿Cómo voy esta semana?", "Hoy no pude estudiar", "Tengo un examen el viernes",
@@ -1787,7 +1833,7 @@ class PestanaAsistente(ttk.Frame):
         self.app.en_segundo_plano(tarea, self._tras_responder, pestana=self, capturar_salida=False)
 
     def _tras_responder(self, resultado):
-        """Muestra la respuesta y actualiza las demás pestañas (la IA pudo cambiar datos)."""
+        """Muestra la respuesta y actualiza las demás secciones (la IA pudo cambiar datos)."""
         # Conversación (para seguir) y respuesta.
         self.conversacion, respuesta = resultado
         # Mostramos la respuesta sin formato Markdown.
@@ -1797,7 +1843,7 @@ class PestanaAsistente(ttk.Frame):
 
 
 class PestanaGoogle(ttk.Frame):
-    """Pestaña "Google Calendar": estado de la conexión, subir el plan y borrar sesiones."""
+    """Sección "Google Calendar": estado de la conexión, subir el plan y borrar sesiones."""
 
     def __init__(self, padre, app):
         # Marco de la pestaña con margen interior.
@@ -1990,7 +2036,7 @@ class PestanaGoogle(ttk.Frame):
         # Sin plan.
         if plan is None:
             # Explicación.
-            self.info_plan.configure(text="Todavía no hay plan. Genéralo en la pestaña Semana.")
+            self.info_plan.configure(text="Todavía no hay plan. Genéralo en la sección Semana.")
         # Con plan.
         else:
             # Texto con las fechas y cuántas sesiones.
@@ -2121,7 +2167,7 @@ class PestanaGoogle(ttk.Frame):
 
 
 class PestanaAjustes(ttk.Frame):
-    """Pestaña "Ajustes": edita config.json con casillas en vez de a mano."""
+    """Sección "Ajustes": edita config.json con casillas en vez de a mano."""
 
     def __init__(self, padre, app):
         # Marco de la pestaña.
@@ -2149,7 +2195,7 @@ class PestanaAjustes(ttk.Frame):
         # Guardar.
         ttk.Button(arriba, text="Guardar ajustes", style="Acento.TButton", command=self.guardar).pack(side="right")
         # Dónde se guardan.
-        ttk.Label(cuerpo, text=f"Se guardan en {almacen.ARCHIVO_CONFIG}", style="Suave.TLabel").pack(
+        ttk.Label(cuerpo, text=f"Se guardan en {almacen.ARCHIVO_CONFIG.name}, en la carpeta del programa.", style="Suave.TLabel").pack(
             anchor="w", pady=(2, 14))
         # Contenedor de las dos columnas.
         columnas = tk.Frame(cuerpo, background=COLOR_FONDO)
@@ -2188,7 +2234,7 @@ class PestanaAjustes(ttk.Frame):
         ttk.Entry(izquierda, textvariable=self.calendario, width=24).grid(
             row=len(CAMPOS_NUMERICOS) * 2, column=1, sticky="e", pady=(8, 0))
         # Explicación.
-        ttk.Label(izquierda, text="«primary» es tu calendario principal (ver README, sección 7)",
+        ttk.Label(izquierda, text="«primary» es tu calendario principal (ver «Configuración» en el README)",
                   style="TarjetaSuave.TLabel").grid(row=len(CAMPOS_NUMERICOS) * 2 + 1, column=0, columnspan=2, sticky="w")
         # ¿Recuperar lo no hecho?
         self.recuperar = tk.BooleanVar()
@@ -2312,11 +2358,11 @@ class PestanaAjustes(ttk.Frame):
         # Redibujamos las demás pestañas.
         self.app.refrescar_todo(salvo=self)
         # Mensaje abajo.
-        self.app.avisar("Ajustes guardados. Pulsa «Generar plan» en la pestaña Semana para aplicarlos.")
+        self.app.avisar("Ajustes guardados. Pulsa «Generar plan» en la sección Semana para aplicarlos.")
 
 
 class Aplicacion(tk.Tk):
-    """La ventana principal: cabecera, pestañas y barra de mensajes."""
+    """La ventana principal: cabecera, secciones y barra de mensajes."""
 
     def __init__(self):
         # Creamos la ventana.
@@ -2326,17 +2372,17 @@ class Aplicacion(tk.Tk):
         # Escala de la pantalla (1 = normal; 1.5 en pantallas con zoom del 150 %).
         self.escala = max(self.winfo_fpixels("1i") / 96, 1)
         # Tamaño inicial: el pensado o, si la pantalla es más pequeña, lo que quepa.
-        ancho = min(int(1180 * self.escala), self.winfo_screenwidth() - 60)
+        ancho = min(int(1380 * self.escala), self.winfo_screenwidth() - 60)
         # Alto inicial.
-        alto = min(int(780 * self.escala), self.winfo_screenheight() - 100)
+        alto = min(int(820 * self.escala), self.winfo_screenheight() - 100)
         # Aplicamos el tamaño.
         self.geometry(f"{ancho}x{alto}")
         # Tamaño mínimo para que nada quede cortado.
-        self.minsize(min(int(980 * self.escala), ancho), min(int(620 * self.escala), alto))
+        self.minsize(min(int(1180 * self.escala), ancho), min(int(620 * self.escala), alto))
         # Color de fondo.
         self.configure(background=COLOR_FONDO)
         # Los mensajes de error hablan del botón, no del comando.
-        almacen.COMO_GENERAR = "el botón «Generar plan» de la pestaña Semana"
+        almacen.COMO_GENERAR = "el botón «Generar plan» de la sección Semana"
         # Fuentes de letra.
         self.fuentes = self._crear_fuentes()
         # Colores y formas de los controles.
@@ -2376,6 +2422,10 @@ class Aplicacion(tk.Tk):
         base = tkfont.nametofont("TkDefaultFont")
         # En Windows usamos Segoe UI, la de Windows 10 y 11.
         familia = "Segoe UI" if sys.platform == "win32" else base.actual("family")
+        # Para los títulos, Segoe UI Semibold si existe (Windows); si no, la misma en negrita.
+        titulos = "Segoe UI Semibold" if "Segoe UI Semibold" in tkfont.families(self) else familia
+        # Esa fuente ya es seminegrita: no le añadimos negrita encima.
+        grosor = "normal" if titulos == "Segoe UI Semibold" else "bold"
         # Ajustamos las fuentes estándar de tkinter.
         for nombre in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont"):
             # Misma familia y tamaño 10.
@@ -2396,10 +2446,14 @@ class Aplicacion(tk.Tk):
             "tema": tkfont.Font(self, family=familia, size=13, weight="bold"),
             # Subtítulos.
             "subtitulo": tkfont.Font(self, family=familia, size=12, weight="bold"),
-            # Títulos de las pestañas.
-            "titulo": tkfont.Font(self, family=familia, size=18, weight="bold"),
-            # Nombre de la app en la cabecera.
-            "marca": tkfont.Font(self, family=familia, size=15, weight="bold"),
+            # Títulos de las secciones.
+            "titulo": tkfont.Font(self, family=titulos, size=20, weight=grosor),
+            # Nombre de la app en la barra lateral.
+            "marca": tkfont.Font(self, family=titulos, size=14, weight=grosor),
+            # Secciones de la barra lateral.
+            "nav": tkfont.Font(self, family=familia, size=11),
+            # Sección elegida en la barra lateral.
+            "nav_activa": tkfont.Font(self, family=familia, size=11, weight="bold"),
         }
 
     def _aplicar_estilo(self):
@@ -2411,7 +2465,7 @@ class Aplicacion(tk.Tk):
         # Valores generales para todos los controles.
         estilo.configure(".", background=COLOR_FONDO, foreground=COLOR_TEXTO, font=self.fuentes["normal"],
                          bordercolor=COLOR_BORDE, lightcolor=COLOR_TARJETA, darkcolor=COLOR_BORDE,
-                         troughcolor="#e9edf4", focuscolor=COLOR_ACENTO)
+                         troughcolor="#eceef5", focuscolor=COLOR_ACENTO)
         # Marcos.
         estilo.configure("TFrame", background=COLOR_FONDO)
         # Marcos dentro de tarjetas.
@@ -2427,7 +2481,7 @@ class Aplicacion(tk.Tk):
         # Avisos.
         estilo.configure("Aviso.TLabel", foreground=COLOR_AVISO)
         # Información (por ejemplo, cómo se adaptó el plan).
-        estilo.configure("Info.TLabel", foreground="#1a4f9c")
+        estilo.configure("Info.TLabel", foreground="#4338ca")
         # Texto grande dentro de tarjetas (la racha).
         estilo.configure("RachaTarjeta.TLabel", background=COLOR_TARJETA, foreground=COLOR_TEXTO,
                          font=self.fuentes["subtitulo"])
@@ -2450,18 +2504,18 @@ class Aplicacion(tk.Tk):
                          bordercolor=COLOR_BORDE, lightcolor=COLOR_TARJETA, darkcolor=COLOR_TARJETA,
                          focusthickness=0)
         # Botones normales al pasar el ratón o desactivados.
-        estilo.map("TButton", background=[("disabled", "#f1f3f6"), ("pressed", "#d2e3fc"), ("active", COLOR_ACENTO_SUAVE)],
+        estilo.map("TButton", background=[("disabled", "#f1f3f6"), ("pressed", "#e0e7ff"), ("active", COLOR_ACENTO_SUAVE)],
                    foreground=[("disabled", "#a0a6b0")], lightcolor=[("active", COLOR_ACENTO_SUAVE)],
                    darkcolor=[("active", COLOR_ACENTO_SUAVE)])
         # Botón principal: azul con letra blanca.
         estilo.configure("Acento.TButton", background=COLOR_ACENTO, foreground="white", bordercolor=COLOR_ACENTO,
                          lightcolor=COLOR_ACENTO, darkcolor=COLOR_ACENTO, font=self.fuentes["negrita"])
         # Botón principal al pasar el ratón o desactivado.
-        estilo.map("Acento.TButton", background=[("disabled", "#a8c7fa"), ("pressed", "#174ea6"),
+        estilo.map("Acento.TButton", background=[("disabled", "#c7d2fe"), ("pressed", "#3730a3"),
                                                  ("active", COLOR_ACENTO_OSCURO)],
-                   foreground=[("disabled", "white")], bordercolor=[("disabled", "#a8c7fa")],
-                   lightcolor=[("disabled", "#a8c7fa"), ("active", COLOR_ACENTO_OSCURO)],
-                   darkcolor=[("disabled", "#a8c7fa"), ("active", COLOR_ACENTO_OSCURO)])
+                   foreground=[("disabled", "white")], bordercolor=[("disabled", "#c7d2fe")],
+                   lightcolor=[("disabled", "#c7d2fe"), ("active", COLOR_ACENTO_OSCURO)],
+                   darkcolor=[("disabled", "#c7d2fe"), ("active", COLOR_ACENTO_OSCURO)])
         # Botones pequeños para marcar sesiones y para los ejemplos del asistente.
         estilo.configure("Marca.TButton", padding=(10, 4), font=self.fuentes["pequena"])
         # Botón «Hecha» marcado: verde.
@@ -2469,41 +2523,37 @@ class Aplicacion(tk.Tk):
                          background=COLOR_BIEN, foreground="white", bordercolor=COLOR_BIEN, lightcolor=COLOR_BIEN,
                          darkcolor=COLOR_BIEN)
         # Al pasar el ratón, verde más oscuro.
-        estilo.map("MarcaHecha.TButton", background=[("active", "#0d652d")], lightcolor=[("active", "#0d652d")],
-                   darkcolor=[("active", "#0d652d")])
+        estilo.map("MarcaHecha.TButton", background=[("active", "#166534")], lightcolor=[("active", "#166534")],
+                   darkcolor=[("active", "#166534")])
         # Botón «No la hice» marcado: rojo.
         estilo.configure("MarcaNo.TButton", padding=(10, 4), font=self.fuentes["pequena_negrita"],
                          background=COLOR_MAL, foreground="white", bordercolor=COLOR_MAL, lightcolor=COLOR_MAL,
                          darkcolor=COLOR_MAL)
         # Al pasar el ratón, rojo más oscuro.
-        estilo.map("MarcaNo.TButton", background=[("active", "#a50e0e")], lightcolor=[("active", "#a50e0e")],
-                   darkcolor=[("active", "#a50e0e")])
+        estilo.map("MarcaNo.TButton", background=[("active", "#b91c1c")], lightcolor=[("active", "#b91c1c")],
+                   darkcolor=[("active", "#b91c1c")])
         # Botón de borrar: letra roja.
         estilo.configure("Peligro.TButton", foreground=COLOR_MAL)
         # Botón de borrar al pasar el ratón.
         estilo.map("Peligro.TButton", background=[("disabled", "#f1f3f6"), ("active", "#fce8e6")],
                    foreground=[("disabled", "#a0a6b0")], lightcolor=[("active", "#fce8e6")],
                    darkcolor=[("active", "#fce8e6")])
-        # Pestañas: sin bordes, con margen.
-        estilo.configure("TNotebook", background=COLOR_FONDO, borderwidth=0, tabmargins=(20, 6, 20, 0))
-        # Cada pestaña.
-        estilo.configure("TNotebook.Tab", background="#e6eaf2", foreground=COLOR_SUAVE, padding=(20, 8),
-                         borderwidth=0, font=self.fuentes["negrita"], lightcolor="#e6eaf2", bordercolor=COLOR_FONDO)
-        # Pestaña elegida y al pasar el ratón.
-        estilo.map("TNotebook.Tab", background=[("selected", COLOR_FONDO), ("active", "#eef1f7")],
-                   foreground=[("selected", COLOR_ACENTO)], lightcolor=[("selected", COLOR_FONDO)],
-                   expand=[("selected", (0, 2, 0, 0))])
+        # Secciones: un "cuaderno" sin bordes ni solapas (se cambia de sección desde la barra lateral).
+        estilo.configure("Lateral.TNotebook", background=COLOR_FONDO, borderwidth=0, tabmargins=0,
+                         lightcolor=COLOR_FONDO, darkcolor=COLOR_FONDO, bordercolor=COLOR_FONDO)
+        # Solapas sin dibujo: no ocupan sitio.
+        estilo.layout("Lateral.TNotebook.Tab", [])
         # Tablas.
         estilo.configure("Treeview", background=COLOR_TARJETA, fieldbackground=COLOR_TARJETA, foreground=COLOR_TEXTO,
                          rowheight=int(30 * self.escala), bordercolor=COLOR_BORDE, borderwidth=1)
         # Fila elegida.
-        estilo.map("Treeview", background=[("selected", "#d2e3fc")], foreground=[("selected", COLOR_TEXTO)])
+        estilo.map("Treeview", background=[("selected", "#e0e7ff")], foreground=[("selected", COLOR_TEXTO)])
         # Títulos de las columnas.
-        estilo.configure("Treeview.Heading", background="#eef1f7", foreground=COLOR_TEXTO, relief="flat",
-                         font=self.fuentes["negrita"], padding=(8, 6), lightcolor="#eef1f7", darkcolor="#eef1f7",
+        estilo.configure("Treeview.Heading", background="#f3f4fa", foreground=COLOR_TEXTO, relief="flat",
+                         font=self.fuentes["negrita"], padding=(8, 6), lightcolor="#f3f4fa", darkcolor="#f3f4fa",
                          bordercolor=COLOR_BORDE)
         # Títulos al pasar el ratón.
-        estilo.map("Treeview.Heading", background=[("active", "#e4e9f2")])
+        estilo.map("Treeview.Heading", background=[("active", "#e8eaf4")])
         # Casillas de texto.
         estilo.configure("TEntry", padding=(8, 5), fieldbackground=COLOR_TARJETA, lightcolor=COLOR_BORDE)
         # Casillas con flechitas.
@@ -2516,42 +2566,68 @@ class Aplicacion(tk.Tk):
         estilo.map("TCombobox", fieldbackground=[("readonly", COLOR_TARJETA)],
                    selectbackground=[("readonly", COLOR_TARJETA)], selectforeground=[("readonly", COLOR_TEXTO)])
         # Barra de progreso azul.
-        estilo.configure("Horizontal.TProgressbar", background=COLOR_ACENTO, troughcolor="#e9edf4",
-                         bordercolor="#e9edf4", lightcolor=COLOR_ACENTO, darkcolor=COLOR_ACENTO, thickness=6)
+        estilo.configure("Horizontal.TProgressbar", background=COLOR_ACENTO, troughcolor="#eceef5",
+                         bordercolor="#eceef5", lightcolor=COLOR_ACENTO, darkcolor=COLOR_ACENTO, thickness=6)
         # Barras de desplazamiento discretas.
-        estilo.configure("Vertical.TScrollbar", background="#d5dbe5", troughcolor=COLOR_FONDO,
-                         bordercolor=COLOR_FONDO, arrowcolor=COLOR_SUAVE, lightcolor="#d5dbe5", darkcolor="#d5dbe5")
+        estilo.configure("Vertical.TScrollbar", background="#d4d8e6", troughcolor=COLOR_FONDO,
+                         bordercolor=COLOR_FONDO, arrowcolor=COLOR_SUAVE, lightcolor="#d4d8e6", darkcolor="#d4d8e6")
         # Lista que se despliega en las Combobox (es un control clásico: se configura aparte).
         self.option_add("*TCombobox*Listbox.background", COLOR_TARJETA)
         # Fila elegida de esa lista.
-        self.option_add("*TCombobox*Listbox.selectBackground", "#d2e3fc")
+        self.option_add("*TCombobox*Listbox.selectBackground", "#e0e7ff")
         # Texto de la fila elegida.
         self.option_add("*TCombobox*Listbox.selectForeground", COLOR_TEXTO)
         # Fuente de esa lista.
         self.option_add("*TCombobox*Listbox.font", self.fuentes["normal"])
 
+    def _cargar_imagenes(self):
+        """Carga el logo y los iconos (del tamaño adecuado al zoom de la pantalla) y pone el icono de la ventana."""
+        # Aquí se guardan (tkinter las borra si nadie las guarda).
+        self.imagenes = {}
+        # Si falta la carpeta recursos/ (o una imagen), la ventana funciona igual, solo que sin imágenes.
+        try:
+            # Tamaño de los iconos más parecido a 20 píxeles por la escala de la pantalla.
+            tam_icono = min((20, 30, 40), key=lambda t: abs(t - 20 * self.escala))
+            # Tamaño del logo más parecido a 40 píxeles por la escala.
+            tam_logo = min((40, 64, 80), key=lambda t: abs(t - 40 * self.escala))
+            # Iconos de cada sección, en color claro (normal) y blanco (elegida).
+            for nombre, _texto, _atributo in SECCIONES:
+                # Los dos colores.
+                for color in ("claro", "blanco"):
+                    # Imagen PNG.
+                    self.imagenes[f"{nombre}-{color}"] = tk.PhotoImage(
+                        file=str(CARPETA_RECURSOS / "iconos" / f"{nombre}-{color}-{tam_icono}.png"))
+            # Logo de la barra lateral.
+            self.imagenes["logo"] = tk.PhotoImage(file=str(CARPETA_RECURSOS / f"logo-{tam_logo}.png"))
+            # Logo en varios tamaños para la barra de título y la de tareas.
+            self.imagenes["ventana"] = [tk.PhotoImage(file=str(CARPETA_RECURSOS / f"logo-{t}.png"))
+                                        for t in (16, 32, 48, 64, 128, 256)]
+            # Icono de la ventana (True = también para las ventanitas de aviso).
+            self.iconphoto(True, *self.imagenes["ventana"])
+        # Sin imágenes: seguimos sin ellas.
+        except (tk.TclError, OSError):
+            # Diccionario vacío.
+            self.imagenes = {}
+
     def _construir(self):
-        """Crea la cabecera, las pestañas y la barra de mensajes."""
-        # Cabecera azul oscuro.
-        cabecera = tk.Frame(self, background="#173a73", padx=28, pady=14)
-        # Arriba del todo.
-        cabecera.pack(fill="x")
-        # Nombre de la app.
-        tk.Label(cabecera, text="Planificador de estudio", font=self.fuentes["marca"], background="#173a73",
-                 foreground="white").pack(side="left")
-        # Próxima sesión (a la derecha de la cabecera).
-        self.proxima = tk.Label(cabecera, font=self.fuentes["normal"], background="#173a73", foreground="#d6e2ff")
-        # A la derecha.
-        self.proxima.pack(side="right")
+        """Crea la barra lateral, las secciones y la barra de mensajes."""
+        # Logo e iconos.
+        self._cargar_imagenes()
+        # Barra lateral a la izquierda.
+        self._construir_lateral()
+        # Zona principal a la derecha.
+        principal = tk.Frame(self, background=COLOR_FONDO)
+        # Ocupa el resto de la ventana.
+        principal.pack(side="left", fill="both", expand=True)
         # Barra de mensajes, abajo del todo.
-        self.barra_avisos = tk.Label(self, anchor="w", font=self.fuentes["normal"], background="#e9edf4",
+        self.barra_avisos = tk.Label(principal, anchor="w", font=self.fuentes["normal"], background="#eceef5",
                                      foreground=COLOR_TEXTO, padx=28, pady=7)
         # Abajo.
         self.barra_avisos.pack(side="bottom", fill="x")
-        # Pestañas.
-        self.cuaderno = ttk.Notebook(self)
-        # Ocupan el resto de la ventana.
-        self.cuaderno.pack(fill="both", expand=True, pady=(8, 0))
+        # Las secciones son pestañas sin solapas visibles: se eligen desde la barra lateral.
+        self.cuaderno = ttk.Notebook(principal, style="Lateral.TNotebook")
+        # Ocupan el resto de la zona principal.
+        self.cuaderno.pack(fill="both", expand=True, pady=(6, 0))
         # Pestaña Hoy.
         self.pestana_hoy = PestanaHoy(self.cuaderno, self)
         # Pestaña Semana.
@@ -2566,15 +2642,127 @@ class Aplicacion(tk.Tk):
         self.pestana_google = PestanaGoogle(self.cuaderno, self)
         # Pestaña Ajustes.
         self.pestana_ajustes = PestanaAjustes(self.cuaderno, self)
-        # Añadimos las pestañas en orden, con su título.
-        for pestana, titulo in ((self.pestana_hoy, "Hoy"), (self.pestana_semana, "Semana"),
-                                (self.pestana_temas, "Temas"), (self.pestana_metas, "Metas"),
-                                (self.pestana_asistente, "Asistente"), (self.pestana_google, "Google Calendar"),
-                                (self.pestana_ajustes, "Ajustes")):
+        # Añadimos las pestañas en el mismo orden que la barra lateral.
+        for _nombre, texto, atributo in SECCIONES:
             # Añadimos la pestaña.
-            self.cuaderno.add(pestana, text=titulo)
-        # Al cambiar de pestaña, la actualizamos (por ejemplo, para ver si ya está credentials.json).
+            self.cuaderno.add(getattr(self, atributo), text=texto)
+        # Al cambiar de sección, la actualizamos y marcamos en la barra lateral.
         self.cuaderno.bind("<<NotebookTabChanged>>", self._al_cambiar_pestana)
+        # Atajos de teclado: Ctrl+1 ... Ctrl+7 para ir a cada sección.
+        for numero, (_nombre, _texto, atributo) in enumerate(SECCIONES, start=1):
+            # Atajo.
+            self.bind_all(f"<Control-Key-{numero}>", lambda _evento, a=atributo: self.cuaderno.select(getattr(self, a)))
+        # Marcamos la primera sección.
+        self._pintar_lateral()
+
+    def _construir_lateral(self):
+        """Barra lateral oscura: logo, una fila por sección y la próxima sesión abajo."""
+        # Marco de la barra, de ancho fijo.
+        lateral = tk.Frame(self, background=COLOR_LATERAL, width=int(236 * self.escala))
+        # A la izquierda, de arriba abajo.
+        lateral.pack(side="left", fill="y")
+        # El ancho no cambia con el contenido.
+        lateral.pack_propagate(False)
+        # Logo y nombre.
+        marca = tk.Frame(lateral, background=COLOR_LATERAL)
+        # Arriba.
+        marca.pack(fill="x", padx=20, pady=(24, 28))
+        # Logo (si se pudo cargar).
+        tk.Label(marca, image=self.imagenes.get("logo"), background=COLOR_LATERAL).pack(side="left")
+        # Textos del nombre.
+        nombre = tk.Frame(marca, background=COLOR_LATERAL)
+        # A la derecha del logo.
+        nombre.pack(side="left", padx=(12, 0))
+        # "Planificador", grande y blanco.
+        tk.Label(nombre, text="Planificador", font=self.fuentes["marca"], background=COLOR_LATERAL,
+                 foreground="white").pack(anchor="w")
+        # "de estudio", más pequeño.
+        tk.Label(nombre, text="de estudio", font=self.fuentes["normal"], background=COLOR_LATERAL,
+                 foreground=COLOR_LATERAL_SUAVE).pack(anchor="w")
+        # Filas de cada sección: nombre del icono -> (fila, marca, icono, texto, atributo).
+        self.filas_lateral = {}
+        # Una fila por sección.
+        for nombre_icono, texto, atributo in SECCIONES:
+            # Fila (con la mano como puntero, para que se note que se puede pulsar).
+            fila = tk.Frame(lateral, background=COLOR_LATERAL, cursor="hand2")
+            # Ocupa el ancho.
+            fila.pack(fill="x", padx=12, pady=2)
+            # Barrita ámbar a la izquierda (solo se ve en la sección elegida).
+            barrita = tk.Frame(fila, background=COLOR_LATERAL, width=4)
+            # A la izquierda, de arriba abajo de la fila.
+            barrita.pack(side="left", fill="y")
+            # Icono.
+            icono = tk.Label(fila, image=self.imagenes.get(f"{nombre_icono}-claro"), background=COLOR_LATERAL,
+                             cursor="hand2")
+            # A la izquierda.
+            icono.pack(side="left", padx=(12, 12), pady=int(9 * self.escala))
+            # Texto.
+            etiqueta = tk.Label(fila, text=texto, font=self.fuentes["nav"], background=COLOR_LATERAL,
+                                foreground=COLOR_LATERAL_TEXTO, anchor="w", cursor="hand2")
+            # Ocupa el resto.
+            etiqueta.pack(side="left", fill="x", expand=True)
+            # Guardamos las piezas.
+            self.filas_lateral[nombre_icono] = (fila, barrita, icono, etiqueta, atributo)
+            # Pulsar, pasar el ratón por encima y salir, en todas las piezas de la fila.
+            for pieza in (fila, barrita, icono, etiqueta):
+                # Pulsar: ir a la sección.
+                pieza.bind("<Button-1>", lambda _evento, a=atributo: self.cuaderno.select(getattr(self, a)))
+                # Ratón encima: resaltar.
+                pieza.bind("<Enter>", lambda _evento, n=nombre_icono: self._pintar_lateral(encima=n))
+                # Ratón fuera: quitar el resaltado.
+                pieza.bind("<Leave>", lambda _evento: self.after_idle(self._pintar_lateral))
+        # Tarjeta de la próxima sesión, abajo del todo.
+        tarjeta = tk.Frame(lateral, background=COLOR_LATERAL_ENCIMA)
+        # Abajo.
+        tarjeta.pack(side="bottom", fill="x", padx=16, pady=20)
+        # Título pequeño.
+        tk.Label(tarjeta, text="PRÓXIMA SESIÓN", font=self.fuentes["pequena_negrita"], background=COLOR_LATERAL_ENCIMA,
+                 foreground=COLOR_LATERAL_SUAVE).pack(anchor="w", padx=14, pady=(12, 2))
+        # Cuándo y qué (se rellena en _actualizar_cabecera).
+        self.proxima = tk.Label(tarjeta, font=self.fuentes["negrita"], background=COLOR_LATERAL_ENCIMA,
+                                foreground="white", justify="left", anchor="w", wraplength=int(176 * self.escala))
+        # Debajo del título.
+        self.proxima.pack(anchor="w", padx=14, pady=(0, 12))
+
+    def _pintar_lateral(self, encima=None):
+        """Colorea las filas de la barra lateral: la elegida, la que tiene el ratón encima y las demás."""
+        # Sección elegida ahora mismo.
+        try:
+            # Pestaña elegida.
+            elegida = self.nametowidget(self.cuaderno.select())
+        # Si la ventana se está cerrando, no hay nada que pintar.
+        except (KeyError, tk.TclError):
+            # Terminamos.
+            return
+        # Control que tiene el ratón encima (para saber si sigue sobre alguna fila).
+        if encima is None:
+            # Intentamos averiguarlo.
+            try:
+                # Control bajo el ratón.
+                bajo_raton = self.winfo_containing(*self.winfo_pointerxy())
+            # En algunos casos tkinter no lo encuentra.
+            except (KeyError, tk.TclError):
+                # Ninguno.
+                bajo_raton = None
+            # ¿Es parte de alguna fila?
+            encima = next((n for n, piezas in self.filas_lateral.items() if bajo_raton in piezas[:4]), None)
+        # Pintamos cada fila.
+        for nombre_icono, (fila, barrita, icono, etiqueta, atributo) in self.filas_lateral.items():
+            # ¿Es la elegida?
+            activa = getattr(self, atributo) is elegida
+            # Fondo: elegida, con el ratón encima o normal.
+            fondo = COLOR_LATERAL_ACTIVO if activa else (COLOR_LATERAL_ENCIMA if nombre_icono == encima else COLOR_LATERAL)
+            # Fondo de las piezas.
+            for pieza in (fila, icono, etiqueta):
+                # Mismo fondo.
+                pieza.configure(background=fondo)
+            # Barrita ámbar solo en la elegida.
+            barrita.configure(background=COLOR_AMBAR if activa else fondo)
+            # Icono blanco en la elegida; claro en las demás.
+            icono.configure(image=self.imagenes.get(f"{nombre_icono}-{'blanco' if activa else 'claro'}", ""))
+            # Texto blanco y en negrita en la elegida.
+            etiqueta.configure(foreground="white" if activa else COLOR_LATERAL_TEXTO,
+                               font=self.fuentes["nav_activa" if activa else "nav"])
 
     def leer_plan(self):
         """Lee el plan guardado en datos/plan.json (None si no hay o si está dañado)."""
@@ -2629,7 +2817,7 @@ class Aplicacion(tk.Tk):
         self._actualizar_cabecera()
 
     def refrescar_todo(self, salvo=None):
-        """Vuelve a leer el plan y redibuja todas las pestañas (menos `salvo`, si se indica)."""
+        """Vuelve a leer el plan y redibuja todas las secciones (menos `salvo`, si se indica)."""
         # Releemos el plan del disco.
         self.leer_plan()
         # Redibujamos cada pestaña.
@@ -2643,15 +2831,15 @@ class Aplicacion(tk.Tk):
         self._actualizar_cabecera()
 
     def _actualizar_cabecera(self):
-        """Muestra en la cabecera cuál es la próxima sesión."""
+        """Muestra en la tarjeta de la barra lateral cuál es la próxima sesión."""
         # Fecha y hora actuales.
         ahora = datetime.now()
         # Próxima sesión que no terminó.
         sesion = proxima_sesion(self.plan, ahora)
-        # Si no hay, dejamos la cabecera sin texto.
+        # Si no hay, lo decimos.
         if sesion is None:
-            # Sin texto.
-            self.proxima.configure(text="")
+            # Texto.
+            self.proxima.configure(text="Nada pendiente.\nGenera un plan en Semana.")
             # Terminamos.
             return
         # "Ahora" si ya empezó; si no, cuándo empieza.
@@ -2670,8 +2858,8 @@ class Aplicacion(tk.Tk):
         else:
             # Día y hora.
             cuando = f"{fecha_corta(sesion.inicio.date()).capitalize()} a las {sesion.inicio:%H:%M}"
-        # Texto de la cabecera.
-        self.proxima.configure(text=f"Próxima sesión:  {cuando}  ·  {sesion.tema}")
+        # Texto de la tarjeta: cuándo y, debajo, el tema.
+        self.proxima.configure(text=f"{cuando}\n{sesion.tema}")
 
     def avisar(self, texto, error=False):
         """Muestra un mensaje en la barra de abajo durante unos segundos."""
@@ -2695,7 +2883,7 @@ class Aplicacion(tk.Tk):
 
         `pestana` (por defecto, Google Calendar) es la que se bloquea mientras tanto y la que muestra lo que pasa.
         Con `capturar_salida`, lo que imprima la tarea (por ejemplo, la dirección para dar permiso a Google)
-        se apunta en esa pestaña.
+        se apunta en esa sección.
         """
         # Pestaña que espera el resultado.
         pestana = pestana or self.pestana_google
@@ -2782,7 +2970,7 @@ class Aplicacion(tk.Tk):
                 self._mostrar_fallo(mensaje[2])
 
     def _cada_minuto(self):
-        """Actualiza la pestaña Hoy y la cabecera (para que "Ahora" y "Siguiente" estén al día)."""
+        """Actualiza la sección Hoy y la cabecera (para que "Ahora" y "Siguiente" estén al día)."""
         # Redibujamos Hoy.
         self.pestana_hoy.refrescar()
         # Y la cabecera.
@@ -2791,7 +2979,9 @@ class Aplicacion(tk.Tk):
         self._id_minuto = self.after(60_000, self._cada_minuto)
 
     def _al_cambiar_pestana(self, _evento=None):
-        """Actualiza la pestaña que se acaba de abrir."""
+        """Actualiza la sección que se acaba de abrir y la marca en la barra lateral."""
+        # Marcamos la sección en la barra lateral.
+        self._pintar_lateral()
         # Pestaña elegida.
         elegida = self.nametowidget(self.cuaderno.select())
         # Estas dependen de la hora o de archivos que pueden cambiar fuera de la ventana.

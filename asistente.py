@@ -47,7 +47,7 @@ sesiones cortas con descansos, según el horario y el máximo diario.
 siguiente plan, si cabe.
 - Una meta con tema y fecha hace que ese tema suba de prioridad las dos semanas anteriores y que sus \
 sesiones vayan antes de esa fecha.
-- El plan se sube a Google Calendar desde la pestaña «Google Calendar» de la ventana \
+- El plan se sube a Google Calendar desde la sección «Google Calendar» de la ventana \
 (o con «python planificador.py subir --reemplazar»). Tú no puedes subirlo.
 
 Cómo trabajar:
@@ -459,7 +459,7 @@ def _generar_plan(argumentos, ahora):
                  "recordatorio": "El plan no se ha subido a Google Calendar: recuérdale subirlo."}
     # Resumen para el usuario.
     resumen = (f"Plan nuevo del {plan['desde']:%d/%m} al {plan['hasta']:%d/%m}: {len(plan['sesiones'])} sesiones. "
-               "Súbelo en la pestaña «Google Calendar».")
+               "Súbelo en la sección «Google Calendar».")
     # Los dos.
     return json.dumps(resultado, ensure_ascii=False), resumen
 
@@ -590,7 +590,7 @@ class ConversacionClaude:
         # Clave incorrecta.
         if isinstance(error, a.AuthenticationError):
             # Mensaje.
-            return "La clave de Claude no es válida. Revísala en la pestaña Asistente (botón «Cambiar IA o clave»)."
+            return "La clave de Claude no es válida. Revísala en la sección Asistente (botón «Cambiar IA o clave»)."
         # Sin permiso.
         if isinstance(error, a.PermissionDeniedError):
             # Mensaje.
@@ -734,7 +734,7 @@ class ConversacionGemini:
         # Clave incorrecta.
         if codigo in (400, 401, 403) and ("api key" in texto or "api_key" in texto or codigo == 401):
             # Mensaje.
-            return "La clave de Gemini no es válida. Revísala en la pestaña Asistente (botón «Cambiar IA o clave»)."
+            return "La clave de Gemini no es válida. Revísala en la sección Asistente (botón «Cambiar IA o clave»)."
         # Modelo desconocido.
         if codigo == 404:
             # Mensaje.
@@ -834,7 +834,7 @@ def crear_conversacion(config=None, claves=None):
     if not clave:
         # Explicamos cómo ponerla.
         raise ErrorPlanificador(
-            f"Falta la clave de {NOMBRES[proveedor]}. Ponla en la pestaña Asistente de la ventana, o con:\n"
+            f"Falta la clave de {NOMBRES[proveedor]}. Ponla en la sección Asistente de la ventana, o con:\n"
             f"  python planificador.py clave {proveedor}\n(Cómo conseguirla: GUIA_DE_INICIO.md, paso 7.)")
     # Claude.
     if proveedor == "claude":
