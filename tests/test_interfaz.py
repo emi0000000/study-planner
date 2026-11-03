@@ -221,6 +221,34 @@ class Ventana(BaseVentana):
         # No hubo ningún error.
         self.mensajes["showerror"].assert_not_called()
 
+    def test_barra_lateral(self):
+        # El logo y los iconos se cargaron (están en la carpeta recursos/).
+        self.assertIn("logo", self.app.imagenes)
+        # Mostramos la ventana (los clics simulados solo llegan a ventanas visibles).
+        self.app.deiconify()
+        # Esperamos a que se dibuje.
+        self.app.update()
+        # Pulsamos «Metas» en la barra lateral.
+        self.app.filas_lateral["metas"][3].event_generate("<Button-1>")
+        # Procesamos el clic.
+        self.app.update()
+        # La sección elegida es Metas.
+        self.assertIs(self.app.nametowidget(self.app.cuaderno.select()), self.app.pestana_metas)
+        # Y se ve marcada: barrita ámbar y texto blanco.
+        _fila, barrita, _icono, texto, _atributo = self.app.filas_lateral["metas"]
+        # Comprobamos los colores.
+        self.assertEqual((barrita.cget("background"), texto.cget("foreground")), (interfaz.COLOR_AMBAR, "white"))
+        # Las demás no.
+        self.assertEqual(self.app.filas_lateral["hoy"][1].cget("background"), interfaz.COLOR_LATERAL)
+        # El atajo Ctrl+2 lleva a Semana (el teclado va al control que tiene el foco).
+        self.app.pestana_metas.focus_force()
+        # Pulsamos Ctrl+2.
+        self.app.pestana_metas.event_generate("<Control-Key-2>")
+        # Procesamos el atajo.
+        self.app.update()
+        # Ahora la elegida es Semana.
+        self.assertIs(self.app.nametowidget(self.app.cuaderno.select()), self.app.pestana_semana)
+
     def test_quitar_tema(self):
         # Un tema.
         self.agregar_tema("Historia", 2, 60)

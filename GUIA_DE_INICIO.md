@@ -74,15 +74,15 @@ Lo único que lleva un poco más de trabajo es el paso 4. Los demás son instala
    python -m unittest discover -s tests
    ```
 
-   Al final debe decir **`OK`**. Si dice `FAILED`, copia el mensaje y pídeme ayuda.
+   Al final debe decir **`OK`**. Si dice `FAILED`, copia el mensaje y abre un *issue* en el repositorio de GitHub (pestaña **Issues**) para pedir ayuda.
 
 A partir de aquí ya puedes usar el planificador **sin Google**: agregar temas, generar el plan y ver qué te toca cada día.
 
 **Abre la ventana:** en la carpeta del programa, haz **doble clic en `Abrir planificador.bat`**. Pruébala:
 
-1. En la pestaña **Temas**, escribe un tema (por ejemplo `Matemáticas`), elige su prioridad y sus minutos por semana, y pulsa **Guardar tema**. Repite con tus otros temas.
-2. En la pestaña **Semana**, pulsa **Generar plan**. Verás tus sesiones repartidas día por día.
-3. En la pestaña **Google Calendar**, pulsa **Ver qué se subiría**: te enseña lo que se crearía en el calendario, sin conectarse a nada.
+1. En la sección **Temas**, escribe un tema (por ejemplo `Matemáticas`), elige su prioridad y sus minutos por semana, y pulsa **Guardar tema**. Repite con tus otros temas.
+2. En la sección **Semana**, pulsa **Generar plan**. Verás tus sesiones repartidas día por día.
+3. En la sección **Google Calendar**, pulsa **Ver qué se subiría**: te enseña lo que se crearía en el calendario, sin conectarse a nada.
 
 > Si prefieres la terminal, lo mismo se hace con:
 > `python planificador.py agregar "Matemáticas" --prioridad 5 --minutos 150`, luego `python planificador.py generar` y `python planificador.py subir --simular`.
@@ -156,7 +156,7 @@ Este archivo le dice a Google que **tu** programa puede crear eventos en **tu** 
 
 ## Paso 5. Primera conexión con Google
 
-En la ventana, ve a la pestaña **Google Calendar**. Los dos primeros puntos de **1. Conexión** deben estar en verde (si no, debajo dice qué falta). Pulsa **Subir al calendario**.
+En la ventana, ve a la sección **Google Calendar**. Los dos primeros puntos de **1. Conexión** deben estar en verde (si no, debajo dice qué falta). Pulsa **Subir al calendario**.
 
 (En la terminal sería: `python planificador.py subir`.)
 
@@ -214,7 +214,7 @@ El asistente es un chat dentro del planificador: le cuentas cómo te va ("hoy no
 
 ### 7.3 Ponerla en el planificador
 
-1. Abre la ventana y ve a la pestaña **Asistente**. La primera vez aparece directamente la configuración (después, botón **Cambiar IA o clave**).
+1. Abre la ventana y ve a la sección **Asistente**. La primera vez aparece directamente la configuración (después, botón **Cambiar IA o clave**).
 2. Elige **Gemini** o **Claude**, pega la clave en **Clave** y deja el **Modelo** como está.
 3. Pulsa **Guardar y empezar**.
 4. Escribe algo, por ejemplo **«¿Cómo voy esta semana?»**, y pulsa **Enviar** (o usa los botones de ejemplo).
@@ -235,7 +235,7 @@ La clave se guarda solo en tu ordenador, en `datos/claves.json`. Lo que escribes
 - [ ] `credentials.json` está en la carpeta del programa, con ese nombre exacto.
 - [ ] Subí el plan (botón **Subir al calendario**) y veo las sesiones en calendar.google.com.
 - [ ] Google Calendar está en el teléfono, con la misma cuenta y las notificaciones activadas.
-- [ ] (Opcional) El asistente responde en la pestaña **Asistente**.
+- [ ] (Opcional) El asistente responde en la sección **Asistente**.
 
 Si marcaste todo, ya está funcionando.
 
@@ -246,9 +246,9 @@ Si marcaste todo, ya está funcionando.
 | Cuándo | En la ventana | En la terminal |
 |---|---|---|
 | El domingo (o el primer día de tu semana) | **Semana → Generar plan** y luego **Google Calendar → Subir al calendario** | `python planificador.py generar` y luego `python planificador.py subir` |
-| Cada día, para ver lo que te toca | Pestaña **Hoy** | `python planificador.py hoy` |
-| Al terminar cada sesión (o si no pudiste) | Pestaña **Hoy**: botón **Hecha** o **No la hice** | `python planificador.py marcar hecha "Tema"` (o `marcar no "Tema"`) |
-| Cuando tengas un examen o una entrega | Pestaña **Metas**: escríbela con su tema y fecha (o díselo al asistente) | `python planificador.py meta "Examen" --tema Química --fecha 2026-11-13` |
+| Cada día, para ver lo que te toca | Sección **Hoy** | `python planificador.py hoy` |
+| Al terminar cada sesión (o si no pudiste) | Sección **Hoy**: botón **Hecha** o **No la hice** | `python planificador.py marcar hecha "Tema"` (o `marcar no "Tema"`) |
+| Cuando tengas un examen o una entrega | Sección **Metas**: escríbela con su tema y fecha (o díselo al asistente) | `python planificador.py meta "Examen" --tema Química --fecha 2026-11-13` |
 | Si cambias un tema a mitad de semana | Cambia el tema en **Temas**, pulsa **Generar plan** y **Subir al calendario** (te preguntará si reemplazar las sesiones anteriores: di que sí) | `python planificador.py generar` y luego `python planificador.py subir --reemplazar` |
 | Para borrar del calendario las sesiones del plan | **Google Calendar → Borrar del calendario…** | `python planificador.py limpiar` |
 
@@ -275,4 +275,4 @@ Todos los comandos y ajustes están explicados en el [README](README.md).
 | `Se acabó el límite gratuito de Gemini` | Espera un rato (o hasta el día siguiente) y vuelve a intentarlo. |
 | `Ya hay N sesiones del planificador en tu calendario…` | Ya las habías subido. En la ventana, di que sí cuando te pregunte si reemplazarlas; en la terminal, usa `python planificador.py subir --reemplazar`. |
 | No llegan avisos al teléfono | Revisa el paso 6: misma cuenta y notificaciones activadas. |
-| Otra cosa | Copia el mensaje completo y pídeme ayuda. Hay más casos en la sección 12 del [README](README.md). |
+| Otra cosa | Mira [Problemas frecuentes](README.md#problemas-frecuentes) del README. Si no está, copia el mensaje completo y abre un *issue* en GitHub. |

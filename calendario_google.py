@@ -137,7 +137,7 @@ def conectar(ruta_credenciales=None, ruta_token=None):
             raise ErrorPlanificador("No se pudo conectar con Google. Revisa tu conexión a internet.") from error
     # Si seguimos sin un permiso válido, hay que iniciar sesión.
     if not credenciales or not credenciales.valid:
-        # Para eso necesitamos credentials.json (ver README, sección "Conectar con Google Calendar").
+        # Para eso necesitamos credentials.json (ver GUIA_DE_INICIO.md, paso 4).
         if not ruta_credenciales.exists():
             # Mensaje base: qué falta y dónde ponerlo.
             mensaje = f"No encuentro {ruta_credenciales.name} en la carpeta de la app ({ruta_credenciales.parent}).\n"
